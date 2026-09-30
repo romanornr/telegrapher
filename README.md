@@ -1,10 +1,90 @@
 # telegrapher
 
-Code comments a newcomer can read. Even lines, plain words, no filler.
+Code comments written like telegrams: every word pays its way.
+Mechanical English. No articles, no connective filler, no jargon. Even lines.
 
-For people and coding agents: the agent writes, telegrapher flags, the agent rewrites.
-Code checks are free and local. Jev, an optional second opinion, judges jargon and restated code.
-Check only your own changes, and add nothing to the repositories you contribute to.
+telegrapher lists each problem comment by file and line, with broken rule and fix.
+Coding agents such as Codex and Claude Code read that list and rewrite comments themselves.
+Code checks: free, local. Jev: optional second opinion on jargon and restated code.
+Checks only your changes. Adds nothing to repositories you contribute to.
+
+<a href="#try-it"><img src="assets/icons/claude-code.svg" width="24" height="24" alt="" /> Claude Code</a> &nbsp;·&nbsp; <a href="#try-it"><img src="assets/icons/codex.svg" width="24" height="24" alt="" /> Codex</a> &nbsp;·&nbsp; <a href="#try-it">Other agents with a shell</a>
+
+## What your agent receives
+
+A real run with Jev on, against comments written the way people and models often write them:
+
+```go
+package client
+
+import "time"
+
+// maxTries is set to 5.
+const maxTries = 5
+
+// See https://github.com/cenkalti/backoff
+var baseDelay = 100 * time.Millisecond
+
+// Retry the request a few times; the server can still be starting up after a deploy.
+// Give up after 5 tries. The wait doubles each time, so that we don't
+// just hammer the server while it is busy, see docs/retries.md.
+// Uses truncated exponential backoff with full jitter to avoid a thundering herd.
+// https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+// Added in the last sprint and not yet enabled in production.
+// Calls fetch in a loop and returns the error.
+func fetchWithRetry(url string) error {
+```
+
+```text
+comment-style: 2 of 3 comments need a look ($0.000084)
+
+client.go:8  See https://github.com/cenkalti/backoff
+  name_first: Start with baseDelay, the name this comment documents.
+  status: describes status or progress, not a lasting fact (Jev, 0.87)
+  unexplained_source: cites a source without saying what idea it takes (Jev, 0.73)
+
+client.go:11  Retry the request a few times; the server can still be starting up after a deploy.
+  wrapped_sentence: 1 sentence(s) continue on the next line. Keep each sentence on one line.
+  semicolon: Semicolon joins two sentences. Split them.
+  two_sentences: Two sentences share one line. Give each its own line.
+  name_first: Start with fetchWithRetry, the name this comment documents.
+  doc_path: Points to docs/retries.md. State the reason in the comment instead.
+  too_long: 6 lines of text inside code, above 4. Links do not count.
+  not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
+  uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 differ by more than 15%. Rebalance the sentences.
+  jargon: uses a term a newcomer would need to look up (Jev, 0.81)
+  status: describes status or progress, not a lasting fact (Jev, 0.91)
+```
+
+Agent rewrites, reruns and fixes what is left, until nothing is flagged:
+
+```go
+package client
+
+import "time"
+
+// maxTries caps attempts, so outage fails fast instead of hanging caller.
+const maxTries = 5
+
+// baseDelay is first wait between tries, doubled after each failed try.
+// Doubling idea comes from cenkalti/backoff, widely used Go retry library.
+// https://github.com/cenkalti/backoff
+var baseDelay = 100 * time.Millisecond
+
+// fetchWithRetry retries request up to maxTries times, since server may be starting.
+// Wait between tries doubles each time, so busy server gets enough room to recover.
+// Random extra wait, called jitter, keeps many clients from retrying together.
+// https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+func fetchWithRetry(url string) error {
+```
+
+```text
+comment-style: 0 of 3 comments need a look ($0.000083)
+```
+
+`maxTries is set to 5.` only repeats its code, yet Jev did not flag it in this run.
+Jev answers with probabilities, so it misses some cases and flags some that are fine.
+Code checks never vary. Treat Jev flags as leads, not verdicts.
 
 ## Before and after
 
