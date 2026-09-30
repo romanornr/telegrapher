@@ -2,16 +2,13 @@
 
 Code comments a newcomer can read. Even lines, plain words, no filler.
 
-`telegrapher` finds comments in Go, TypeScript and JavaScript, and flags:
-
-- **Code checks, free and exact:** semicolons joining two sentences, lines of very different length, links to internal docs.
-- **Judgment checks, asked to Jev:** jargon a newcomer would need to look up, comments that only repeat the code, rollout status instead of lasting facts, sources without a reason.
-
-It flags. You rewrite.
+For people and coding agents: the agent writes, telegrapher flags, the agent rewrites.
+Code checks are free and local. Jev, an optional second opinion, judges jargon and restated code.
+Check only your own changes, and add nothing to the repositories you contribute to.
 
 ## Before and after
 
-Real rewrites from the [angry-carp](https://github.com/romanornr/angry-carp) MQL engine.
+Real rewrites from the [angry-carp](https://github.com/romanornr/angry-carp) MQL engine: 44 comments in one pass.
 Each `-` block is the original comment. Each `+` block is the final version, which passes every check.
 
 ### Jargon becomes plain words, and the comment starts with its name
@@ -24,6 +21,55 @@ Each `-` block is the original comment. Each `+` block is the final version, whi
 +// This also covers unsupported clauses inside branches that evaluation would never reach.
  type syntaxListener struct {
 ```
+
+## Try it
+
+Needs Node 24 or newer. There is no npm release yet, so run it from a clone:
+
+```sh
+git clone https://github.com/romanornr/telegrapher.git
+cd telegrapher && npm ci
+alias telegrapher="node $PWD/src/main.ts comment-style"
+```
+
+Then, inside any repository:
+
+```sh
+telegrapher --diff origin/main..HEAD # comments in your commits only
+telegrapher                          # comments touched by staged changes
+telegrapher --file internal/foo.go   # one whole file
+```
+
+`--diff` checks only comments you added or changed, so their existing code stays their business.
+
+## What it checks
+
+It reads comments in Go, TypeScript and JavaScript. It flags. You rewrite.
+
+Code checks run locally, free, with no account or key:
+
+- `wrapped_sentence`: a sentence continues on the next line.
+- `two_sentences`: two sentences share one line.
+- `semicolon`: a semicolon joins two sentences.
+- `uneven_lines`: line lengths differ by more than 15%.
+- `too_long`: more than 4 lines of text inside code.
+- `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
+- `doc_path`: points to an internal document instead of stating the reason.
+- `name_first`: a Go comment does not start with the name it documents.
+
+Judgment checks run only when `JEV_API_KEY` is set.
+[Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
+Each answer is yes or no with a probability, so telegrapher flags only answers at 0.65 or above.
+It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
+Jev is a paid service reached through OpenRouter, and costs a fraction of a cent per comment.
+Only the comments, files and diff you pass are sent, so never pass secrets or private code.
+
+- `jargon`: a term a newcomer would need to look up.
+- `restates_code`: only repeats what the code does.
+- `status`: describes rollout progress instead of a lasting fact.
+- `unexplained_source`: cites a source without saying which idea it takes.
+
+## More examples
 
 ### Uneven lines become even, one sentence per line
 
@@ -592,29 +638,7 @@ Every comment-only change in the engine, original against final, as `git diff` s
 3. Lines of similar length. A short last line reads as an afterthought.
 4. Telegraphic: drop articles and filler where meaning survives. Terse, not cryptic.
 5. Durable facts only. Rollout status belongs in the PR.
-6. Go doc comments start with the name (checked by revive's `exported` rule, not by this tool).
-
-## Setup
-
-Needs Node 24 or newer. Install from npm is not available yet, so run it from a clone:
-
-```sh
-git clone https://github.com/romanornr/telegrapher.git
-cd telegrapher && npm ci
-alias telegrapher="node $PWD/src/main.ts comment-style"
-```
-
-Then, inside any repository:
-
-```sh
-telegrapher                          # comments touched by staged changes
-telegrapher --diff origin/main..HEAD # comments touched by your commits
-telegrapher --file internal/foo.go   # one whole file
-```
-
-Code checks run locally and need nothing else.
-Set `JEV_API_KEY` to also ask Jev, TypeSafe's decision model, the judgment questions through OpenRouter.
-Only the comments, files and diff you pass are sent. Never pass secrets or private code.
+6. Go comments start with the name they document. `name_first` checks every declaration, and revive's `exported` rule covers exported names.
 
 ## License
 
