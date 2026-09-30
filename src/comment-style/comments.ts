@@ -106,7 +106,8 @@ export function codeIssues(block: CommentBlock): Issue[] {
 		issues.push({ rule: 'name_first', detail: `Start with ${block.goName}, the name this comment documents.` });
 	}
 
-	const docPath = prose.join('\n').match(/(?<![\w/])(?:docs|\.scratch)\/[\w./-]+|\bADR[ -]?\d{2,4}\b/);
+	// A path never ends in a period, so a sentence's final period stays out of it.
+	const docPath = prose.join('\n').match(/(?<![\w/])(?:docs|\.scratch)\/[\w./-]*[\w/-]|\bADR[ -]?\d{2,4}\b/);
 	if (docPath) issues.push({ rule: 'doc_path', detail: `Points to ${docPath[0]}. State the reason in the comment instead.` });
 
 	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count.` });

@@ -88,3 +88,8 @@ test('Go comments start with the name declared below them', () => {
 	assert.deepEqual(findComments('x.go', source).map(block => codeIssues(block).map(issue => issue.rule)), [['name_first'], [], [], []]);
 	assert.deepEqual(findComments('x.ts', '// Turns any into loop.\nfunction lowerAny() {}\n').map(block => block.goName), [null]);
 });
+
+test('doc_path leaves out the period that ends the sentence', () => {
+	const [block] = findComments('x.ts', 'run();\n// Retries are explained in docs/retries.md.\nrun();');
+	assert.equal(block === undefined ? '' : codeIssues(block).find(issue => issue.rule === 'doc_path')?.detail, 'Points to docs/retries.md. State the reason in the comment instead.');
+});
