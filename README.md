@@ -122,6 +122,21 @@ telegrapher --file internal/foo.go   # one whole file
 
 `--diff` checks only comments you added or changed, so their existing code stays their business.
 
+### With a coding agent
+
+Paste this into Claude Code, Codex or another agent with a shell, inside the project you are working on:
+
+```text
+Check the code comments in my changes with telegrapher.
+1. If ~/.cache/telegrapher is missing, clone https://github.com/romanornr/telegrapher there and run npm ci.
+2. From this project, run: node ~/.cache/telegrapher/src/main.ts comment-style --diff origin/main..HEAD
+3. Rewrite each flagged comment to pass the rule it names. Keep the meaning, and never make it cryptic.
+4. Run it again until nothing is flagged. Show me the comment diff before committing.
+Never ask me for the Jev key or read it. If it is not set, run code checks only.
+```
+
+Set `JEV_API_KEY` yourself, for example in your shell profile, and never paste it into a prompt.
+
 ## What it checks
 
 It reads comments in Go, TypeScript and JavaScript. It flags. You rewrite.
