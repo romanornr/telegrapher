@@ -1,13 +1,8 @@
-# comment-style
-
-<!-- Draft README for a possible separate repo. Examples below are real
-rewrites from angry-carp commit 8fec1ed (parent 411bdc8), in mql/.
-Telegraphic examples are real rewrites from the pass after ac149d0. Keep Jev accuracy numbers out: TypeSafe's terms
-forbid publishing benchmarks of the service. -->
+# telegrapher
 
 Code comments a newcomer can read. Even lines, plain words, no filler.
 
-`comment-style` finds comments in Go, TypeScript and JavaScript, and flags:
+`telegrapher` finds comments in Go, TypeScript and JavaScript, and flags:
 
 - **Code checks, free and exact:** semicolons joining two sentences, lines of very different length, links to internal docs.
 - **Judgment checks, asked to Jev:** jargon a newcomer would need to look up, comments that only repeat the code, rollout status instead of lasting facts, sources without a reason.
@@ -75,7 +70,7 @@ After: one sentence per line, 86 to 92 characters.
 
 Also fixes Go's rule that a doc comment starts with the name it documents.
 
-Second pass, after the `not_telegraphic` check flagged the first example (real, angry-carp after `ac149d0`):
+Second pass, after the `not_telegraphic` check flagged the first example:
 
 ```diff
 -// MQL truth values are stored as integers, where 0 is false, 1 is true and 2 is null.
@@ -118,7 +113,7 @@ Three passes on one comment, so the README can show the whole path:
 
 ## All rewrites in that commit
 
-Every comment-only change in `mql/` between angry-carp `411bdc8` and `8fec1ed`, as `git diff` shows it.
+Every comment-only change in one rewrite pass of the [angry-carp](https://github.com/romanornr/angry-carp) MQL engine, as `git diff` shows it.
 
 <details>
 <summary>31 rewrites</summary>
@@ -505,13 +500,26 @@ Every comment-only change in `mql/` between angry-carp `411bdc8` and `8fec1ed`, 
 
 ## Setup
 
-Needs a TypeSafe key through OpenRouter for the judgment checks, in `JEV_API_KEY`.
-Code checks run without it.
+Needs Node 24 or newer. Install from npm is not available yet, so run it from a clone:
 
 ```sh
-comment-style                          # comments touched by staged changes
-comment-style --diff main~3..main      # comments touched by a commit range
-comment-style --file internal/foo.go   # one file
+git clone https://github.com/romanornr/telegrapher.git
+cd telegrapher && npm ci
+alias telegrapher="node $PWD/src/main.ts comment-style"
 ```
 
-Only the files and diff you pass are sent. Never pass secrets or private data.
+Then, inside any repository:
+
+```sh
+telegrapher                          # comments touched by staged changes
+telegrapher --diff origin/main..HEAD # comments touched by your commits
+telegrapher --file internal/foo.go   # one whole file
+```
+
+Code checks run locally and need nothing else.
+Set `JEV_API_KEY` to also ask Jev, TypeSafe's decision model, the judgment questions through OpenRouter.
+Only the comments, files and diff you pass are sent. Never pass secrets or private code.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
