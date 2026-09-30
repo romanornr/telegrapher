@@ -47,3 +47,12 @@ test('does not ask whether a Go doc comment on an exported name restates the cod
 
 	assert.deepEqual(asked.map(names => names.includes('restates_code')), [false, true]);
 });
+
+test('without Jev, code checks still run and nothing is sent', async () => {
+	const blocks = findComments('example.ts', 'run();\n// Flags, not counts; several can apply.\nrun();');
+	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '' })) };
+	const report = await runCommentStyle(request, undefined);
+
+	assert.equal(report.summary, 'comment-style: 1 of 1 comments need a look (code checks only, set JEV_API_KEY for Jev questions)');
+	assert.match(report.findings[0] ?? '', /semicolon/);
+});

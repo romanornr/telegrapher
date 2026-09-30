@@ -21,7 +21,7 @@ const { positionals, values } = parseArgs({
 	},
 });
 
-type Prepared = { preview: unknown; run: (ask: Ask) => Promise<Report> };
+type Prepared = { preview: unknown; run: (ask: Ask | undefined) => Promise<Report> };
 
 function prepare(): Prepared | undefined {
 	const [check] = positionals;
@@ -52,16 +52,11 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
+	// Without a key, code checks still run and Jev is skipped.
 	const apiKey = process.env.JEV_API_KEY?.trim();
 
-	if (!apiKey) {
-		console.error('Set JEV_API_KEY before sending a request. See README.md.');
-
-		return 2;
-	}
-
 	try {
-		const report = await prepared.run(jev(apiKey));
+		const report = await prepared.run(apiKey ? jev(apiKey) : undefined);
 
 		if (values.json) {
 			console.log(JSON.stringify(report.record, null, 2));

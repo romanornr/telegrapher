@@ -78,13 +78,16 @@ export function readCommentStyle(options: { files: string[]; diff?: string }): C
 	return { pack, comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: packageDoc(block.path) })) };
 }
 
-export async function runCommentStyle(request: CommentStyleRequest, ask: Ask): Promise<Report> {
+// Without ask, only code checks run, and nothing is sent.
+export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | undefined): Promise<Report> {
 	const answered = [];
 	let cost = 0;
 
 	for (let index = 0; index < request.comments.length; index += concurrency) {
 		const batch = request.comments.slice(index, index + concurrency);
 		answered.push(...await Promise.all(batch.map(async comment => {
+			if (ask === undefined) return { ...comment, result: null, flags: [] };
+
 			// Go requires a doc comment on each exported name, and saying what the name does is its job.
 			const names = comment.goName !== null && /^\p{Lu}/u.test(comment.goName) ? questionNames.filter(name => name !== 'restates_code') : questionNames;
 			const result = await ask({ file: comment.path, comment: comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc },
@@ -108,7 +111,8 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask): P
 	].join('\n'));
 
 	return {
-		summary: `comment-style: ${findings.length} of ${request.comments.length} comments need a look ($${cost.toFixed(6)})`,
+		summary: `comment-style: ${findings.length} of ${request.comments.length} comments need a look `
+			+ (ask === undefined ? '(code checks only, set JEV_API_KEY for Jev questions)' : `($${cost.toFixed(6)})`),
 		findings,
 		record: { pack: request.pack, comments: answered },
 	};
