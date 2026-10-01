@@ -40,8 +40,8 @@ comment-style: 2 of 3 comments need a look ($0.000084)
 
 client.go:8  See https://github.com/cenkalti/backoff
   name_first: Start with baseDelay, the name this comment documents.
-  status: describes status or progress, not a lasting fact (Jev, 0.87)
-  unexplained_source: cites a source without saying what idea it takes (Jev, 0.73)
+  status (Jev 87%): describes status or progress, not a lasting fact
+  unexplained_source (Jev 73%): cites a source without saying what idea it takes
 
 client.go:11  Retry the request a few times; the server can still be starting up after a deploy.
   wrapped_sentence: 1 sentence(s) continue on the next line. Keep each sentence on one line.
@@ -52,8 +52,8 @@ client.go:11  Retry the request a few times; the server can still be starting up
   too_long: 6 lines of text inside code, above 4. Links do not count.
   not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
   uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 differ by more than 15%. Rebalance the sentences.
-  jargon: uses a term a newcomer would need to look up (Jev, 0.81)
-  status: describes status or progress, not a lasting fact (Jev, 0.91)
+  jargon (Jev 81%): uses a term a newcomer would need to look up. Jev does not say which, so explain each technical term once in plain words
+  status (Jev 91%): describes status or progress, not a lasting fact
 ```
 
 Agent rewrites, reruns and fixes what is left, until nothing is flagged:
@@ -208,7 +208,7 @@ Code checks run locally, free, with no account or key:
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
 See [Set up a Jev key](#set-up-a-jev-key).
 [Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
-Each answer is yes or no with a probability, so telegrapher flags only answers at 0.65 or above.
+Each answer is yes or no with a probability, so telegrapher flags only answers at 65% or above.
 It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
 Jev is a paid service, used directly from TypeSafe or through OpenRouter, and costs a fraction of a cent per comment.
 Only the comments, files and diff you pass are sent, so never pass secrets or private code.

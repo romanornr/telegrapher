@@ -22,9 +22,10 @@ function question(instructions: string): NoulQuestion & { instructions: string }
 
 const questionNames = ['jargon', 'restates_code', 'status', 'unexplained_source'] as const;
 
-// Short labels for terminal output. The full questions are in the saved run.
+// labels are short texts for terminal output, while saved run keeps full questions.
+// Source and confidence sit beside rule name, so readers never take "Jev" for flagged word.
 const labels: Record<(typeof questionNames)[number], string> = {
-	jargon: 'uses a term a newcomer would need to look up',
+	jargon: 'uses a term a newcomer would need to look up. Jev does not say which, so explain each technical term once in plain words',
 	restates_code: 'only repeats what the code does',
 	status: 'describes status or progress, not a lasting fact',
 	unexplained_source: 'cites a source without saying what idea it takes',
@@ -109,7 +110,7 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 	const findings = answered.filter(comment => comment.issues.length > 0 || comment.flags.length > 0).map(comment => [
 		`${comment.path}:${comment.line}  ${preview(comment.text[0] ?? '')}`,
 		...comment.issues.map(issue => `  ${issue.rule}: ${issue.detail}`),
-		...comment.flags.map(flag => `  ${flag.name}: ${labels[flag.name]} (Jev, ${flag.probability.toFixed(2)})`),
+		...comment.flags.map(flag => `  ${flag.name} (Jev ${Math.round(flag.probability * 100)}%): ${labels[flag.name]}`),
 	].join('\n'));
 
 	return {
