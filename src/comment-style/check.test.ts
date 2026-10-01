@@ -9,7 +9,7 @@ test('reports code issues and Jev answers above the threshold, one request per c
 	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: 'Package example explains shared terms.' })) };
 	const states: unknown[] = [];
 
-	const report = await runCommentStyle(request, jev('test-key', async (_url, init) => {
+	const report = await runCommentStyle(request, jev('sk-or-test-key', async (_url, init) => {
 		const body: unknown = JSON.parse(String(init?.body));
 		states.push(typeof body === 'object' && body !== null && 'state' in body ? body.state : undefined);
 		const jargon = states.length === 2 ? 0.9 : 0.6;
@@ -36,7 +36,7 @@ test('does not ask whether a Go doc comment on an exported name restates the cod
 	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '' })) };
 	const asked: string[][] = [];
 
-	await runCommentStyle(request, jev('test-key', async (_url, init) => {
+	await runCommentStyle(request, jev('sk-or-test-key', async (_url, init) => {
 		const body: unknown = JSON.parse(String(init?.body));
 		const questions = typeof body === 'object' && body !== null && 'questions' in body && typeof body.questions === 'object' && body.questions !== null ? Object.keys(body.questions) : [];
 		asked.push(questions);
@@ -53,6 +53,6 @@ test('without Jev, code checks still run and nothing is sent', async () => {
 	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '' })) };
 	const report = await runCommentStyle(request, undefined);
 
-	assert.equal(report.summary, 'comment-style: 1 of 1 comments need a look (code checks only, set JEV_API_KEY for Jev questions)');
+	assert.equal(report.summary, 'comment-style: 1 of 1 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal)');
 	assert.match(report.findings[0] ?? '', /semicolon/);
 });

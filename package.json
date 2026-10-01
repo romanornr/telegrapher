@@ -10,10 +10,10 @@
 		"build": "tsc -p tsconfig.build.json",
 		"prepare": "npm run build",
 		"test": "node --test",
-		"check:types": "tsc --noEmit",
-		"telegrapher": "node --env-file-if-exists=.env src/main.ts"
+		"check:types": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@inquirer/password": "^5.2.2",
 		"@typesafe-ai/sdk": "0.6.0"
 	},
 	"description": "Code comments a newcomer can read. Short, plain, even.",

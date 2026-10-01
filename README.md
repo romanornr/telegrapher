@@ -133,7 +133,8 @@ Check the code comments in my changes with telegrapher.
 Never ask me for the Jev key or read it. If it is not set, run code checks only.
 ```
 
-Set `JEV_API_KEY` yourself, for example in your shell profile, and never paste it into a prompt.
+Give telegrapher your Jev key yourself, never through a prompt.
+Run `npx github:romanornr/telegrapher auth` once, or set `JEV_API_KEY` in your shell profile.
 
 ## What it checks
 
@@ -150,11 +151,12 @@ Code checks run locally, free, with no account or key:
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
 
-Judgment checks run only when `JEV_API_KEY` is set.
+Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
+`telegrapher auth` saves it to `~/.config/telegrapher/credentials`, readable only by you. `JEV_API_KEY` wins when set.
 [Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
 Each answer is yes or no with a probability, so telegrapher flags only answers at 0.65 or above.
 It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
-Jev is a paid service reached through OpenRouter, and costs a fraction of a cent per comment.
+Jev is a paid service, used directly from TypeSafe or through OpenRouter, and costs a fraction of a cent per comment.
 Only the comments, files and diff you pass are sent, so never pass secrets or private code.
 
 - `jargon`: a term a newcomer would need to look up.

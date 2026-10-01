@@ -81,7 +81,8 @@ export function readCommentStyle(options: { files: string[]; diff?: string }): C
 // Without ask, only code checks run, and nothing is sent.
 export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | undefined): Promise<Report> {
 	const answered = [];
-	let cost = 0;
+	// Undefined once any answer lacks cost, so total never undercounts.
+	let cost: number | undefined = 0;
 
 	for (let index = 0; index < request.comments.length; index += concurrency) {
 		const batch = request.comments.slice(index, index + concurrency);
@@ -92,7 +93,8 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 			const names = comment.goName !== null && /^\p{Lu}/u.test(comment.goName) ? questionNames.filter(name => name !== 'restates_code') : questionNames;
 			const result = await ask({ file: comment.path, comment: comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc },
 				Object.fromEntries(names.map(name => [name, questions[name]])));
-			cost += costOf(result);
+			const answerCost = costOf(result);
+			cost = cost === undefined || answerCost === undefined ? undefined : cost + answerCost;
 
 			const flags = names.flatMap(name => {
 				const probability = result.answers[name]?.noul ?? 0;
@@ -112,7 +114,7 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 
 	return {
 		summary: `comment-style: ${findings.length} of ${request.comments.length} comments need a look `
-			+ (ask === undefined ? '(code checks only, set JEV_API_KEY for Jev questions)' : `($${cost.toFixed(6)})`),
+			+ (ask === undefined ? '(code checks only, for Jev questions the user runs telegrapher auth in their own terminal)' : cost === undefined ? '(with Jev)' : `($${cost.toFixed(6)})`),
 		findings,
 		record: { pack: request.pack, comments: answered },
 	};
