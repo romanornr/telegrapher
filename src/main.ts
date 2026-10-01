@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { APIError, TypeSafeError } from '@typesafe-ai/sdk';
 import { questions as commentQuestions, readCommentStyle, runCommentStyle } from './comment-style/check.ts';

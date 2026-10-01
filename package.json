@@ -7,6 +7,8 @@
 		"node": ">=24"
 	},
 	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"prepare": "npm run build",
 		"test": "node --test",
 		"check:types": "tsc --noEmit",
 		"telegrapher": "node --env-file-if-exists=.env src/main.ts"
@@ -16,15 +18,21 @@
 	},
 	"description": "Code comments a newcomer can read. Short, plain, even.",
 	"bin": {
-		"telegrapher": "src/main.ts"
+		"telegrapher": "dist/main.js"
 	},
 	"devDependencies": {
-		"@types/node": "*",
-		"typescript": "*"
+		"@types/node": "^26.6.3",
+		"typescript": "^7.0.2"
 	},
 	"license": "Apache-2.0",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/romanornr/telegrapher.git"
-	}
+	},
+	"files": [
+		"dist",
+		"LICENSE",
+		"NOTICE",
+		"README.md"
+	]
 }
