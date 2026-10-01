@@ -12,8 +12,7 @@ test('passes an even, one-sentence-per-line comment inside code', () => {
 		'const x = 1;',
 		'// Compiles MQL any(list, condition) into CEL loop, which counts each loop step against cost limit.',
 		'// Each nested any gets own loop variable, so items never mix, and each loop stops at first match.',
-		'// Only top-level any over body.links reports matching links, found by second pass over every link.',
-		'// https://github.com/cel-expr/cel-go/blob/f2039bc647bca407d882d90436fc8b91bab1ae62/parser/macro.go#L517-L525',
+		'// Only top-level any over body.links reports matching links, as cel-go macro expansion does: https://github.com/cel-expr/cel-go/blob/f2039bc647bca407d882d90436fc8b91bab1ae62/parser/macro.go#L517-L525',
 		'function lowerAny() {}',
 	].join('\n');
 
@@ -31,7 +30,7 @@ test('flags a sentence wrapped onto the next line, and uneven lines', () => {
 	assert.deepEqual(rules(source), [['wrapped_sentence', 'two_sentences', 'uneven_lines']]);
 });
 
-test('measures line length without a URL inside the sentence', () => {
+test('leaves lines that carry a link out of line balance', () => {
 	const source = [
 		'const x = 1;',
 		'// Report refusals and rate limits as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4/src.rs#L715',
@@ -40,6 +39,12 @@ test('measures line length without a URL inside the sentence', () => {
 	].join('\n');
 
 	assert.deepEqual(rules(source), [[]]);
+});
+
+test('flags a link on its own line, but not a comment that is only a link', () => {
+	const own = ['const x = 1;', '// Waits for callback, as Go context example does:', '// https://github.com/golang/go/blob/go1.27.0/src/context/example_test.go', 'run();'].join('\n');
+	assert.deepEqual(rules(own), [['link_line']]);
+	assert.deepEqual(rules('run();\n// https://example.com/spec\nrun();'), [[]]);
 });
 
 test('flags semicolons outside code spans, doc paths and ADR numbers', () => {

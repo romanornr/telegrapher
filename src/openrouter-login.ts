@@ -1,13 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type ServerResponse } from 'node:http';
 
-// Browser sign-in with OpenRouter, which returns ordinary sk-or- key with no refresh token.
-// PKCE (RFC 7636) proves key request comes from same process that opened browser.
-// Adapted from pi's OpenRouter login and callback server, merged into one module:
-// https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/openrouter.ts
-// https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/callback-server.ts
-// Sign-in steps and headless mode follow OpenRouter's own guide for command-line apps:
-// https://openrouter.ai/docs/guides/overview/auth/oauth
+// Browser sign-in with OpenRouter's PKCE flow (RFC 7636) returns ordinary sk-or- key, never refresh token.
+// Login flow is adapted from pi's OpenRouter module: https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/openrouter.ts
+// Callback server is adapted from pi's shared one, merged into this module: https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/callback-server.ts
+// Sign-in steps and headless mode follow OpenRouter's guide for command-line apps: https://openrouter.ai/docs/guides/overview/auth/oauth
 
 const authorizeURL = 'https://openrouter.ai/auth';
 const exchangeURL = 'https://openrouter.ai/api/v1/auth/keys';
@@ -97,8 +94,7 @@ function sendPage(response: ServerResponse, status: number, text: string): void 
 }
 
 // startCallbackServer waits for OpenRouter's redirect on this computer only, at free port.
-// Internet standard for sign-in from desktop apps recommends this, in RFC 8252 section 7.3:
-// https://www.rfc-editor.org/rfc/rfc8252#section-7.3
+// Desktop sign-in standard recommends this setup in RFC 8252 section 7.3: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
 // OpenRouter adds no check value to its redirect, so secret random path blocks stray requests.
 // It swaps code for key before answering browser, so its page can show failures too.
 export async function startCallbackServer(complete: (code: string) => Promise<string>, signal: AbortSignal): Promise<CallbackServer> {
@@ -236,8 +232,7 @@ export async function loginWithOpenRouter(mode: LoginMode, show: (url: string) =
 }
 
 // shouldOpenBrowser guesses whether browser can open here, so SSH and CI get code to paste.
-// Copied from gemini-cli, which adapted it from Google Cloud SDK, with environment passed in:
-// https://github.com/google-gemini/gemini-cli/blob/c6bccb7ecbf6d8368d995455dd725ed34466faad/packages/core/src/utils/browser.ts#L14-L56
+// Copied from gemini-cli, which adapted it from Google Cloud SDK, with environment passed in: https://github.com/google-gemini/gemini-cli/blob/c6bccb7ecbf6d8368d995455dd725ed34466faad/packages/core/src/utils/browser.ts#L14-L56
 export function shouldOpenBrowser(env: Record<string, string | undefined> = process.env, platform = process.platform): boolean {
 	if (env.BROWSER === 'www-browser') return false;
 	if (env.CI || env.DEBIAN_FRONTEND === 'noninteractive') return false;

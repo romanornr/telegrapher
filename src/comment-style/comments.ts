@@ -2,7 +2,7 @@
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
 export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines'; detail: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line'; detail: string };
 
 const maxInlineLines = 4;
 const minLineRatio = 0.85;
@@ -110,6 +110,11 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const docPath = prose.join('\n').match(/(?<![\w/])(?:docs|\.scratch)\/[\w./-]*[\w/-]|\bADR[ -]?\d{2,4}\b/);
 	if (docPath) issues.push({ rule: 'doc_path', detail: `Points to ${docPath[0]}. State the reason in the comment instead.` });
 
+	// Link belongs at end of sentence it supports, so reader sees source and reason together.
+	if (prose.length > 0 && block.text.some(line => urlOnly.test(line.trim()))) {
+		issues.push({ rule: 'link_line', detail: 'Link sits on its own line. End the sentence it supports with a colon, then the link.' });
+	}
+
 	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count.` });
 
 	// Code spans and quoted strings are data, not prose.
@@ -123,9 +128,9 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	}
 
 	if (prose.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
-		// URL inside sentence would decide balance alone, so lines are measured without it.
-		const lengths = prose.map(line => line.replace(/https?:\/\/\S+/g, '').trimEnd().length);
-		if (Math.min(...lengths) < minLineRatio * Math.max(...lengths)) issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} differ by more than ${Math.round((1 - minLineRatio) * 100)}%. Rebalance the sentences.` });
+		// Line ending in link only introduces its source, so it does not count toward balance.
+		const lengths = prose.filter(line => !/https?:\/\/\S+/.test(line)).map(line => line.length);
+		if (lengths.length >= 2 && Math.min(...lengths) < minLineRatio * Math.max(...lengths)) issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} differ by more than ${Math.round((1 - minLineRatio) * 100)}%. Rebalance the sentences.` });
 	}
 
 	return issues;
