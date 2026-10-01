@@ -2,8 +2,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type ServerResponse } from 'node:http';
 
 // Browser sign-in with OpenRouter's PKCE flow (RFC 7636) returns ordinary sk-or- key, never refresh token.
-// Login flow and callback server are adapted from pi, merged into one module: https://github.com/earendil-works/pi/tree/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth
 // Sign-in steps and headless mode follow OpenRouter's guide for command-line apps: https://openrouter.ai/docs/guides/overview/auth/oauth
+// Login flow and callback server are adapted from pi, merged into one module: https://github.com/earendil-works/pi/tree/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth
 
 const authorizeURL = 'https://openrouter.ai/auth';
 const exchangeURL = 'https://openrouter.ai/api/v1/auth/keys';
@@ -92,8 +92,8 @@ function sendPage(response: ServerResponse, status: number, text: string): void 
 	response.end(`${text}\n`);
 }
 
-// startCallbackServer swaps code for key before answering browser, so its page can show failures too.
-// OpenRouter adds no check value to its redirect, so secret random path blocks stray requests.
+// startCallbackServer swaps code for key before answering, so browser page can show failures too.
+// OpenRouter adds no check value to its redirect, so secret random URL path blocks stray requests.
 // It listens on this computer only, at free port, as RFC 8252 section 7.3 advises: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
 export async function startCallbackServer(complete: (code: string) => Promise<string>, signal: AbortSignal): Promise<CallbackServer> {
 	if (signal.aborted) throw new Error('Login cancelled');

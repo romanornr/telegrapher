@@ -67,12 +67,11 @@ import "time"
 const maxTries = 5
 
 // baseDelay is first wait between tries, doubled after each failed try.
-// Doubling idea comes from cenkalti/backoff, widely used Go retry library.
-// https://github.com/cenkalti/backoff
+// Doubling idea comes from cenkalti/backoff, widely used Go retry library: https://github.com/cenkalti/backoff
 var baseDelay = 100 * time.Millisecond
 
 // fetchWithRetry retries request up to maxTries times, since server may be starting.
-// Wait between tries doubles each time, so busy server gets enough room to recover.
+// Wait between tries doubles each time, so busy server gets enough room to recover again.
 // Random extra wait, called jitter, keeps many clients from retrying together: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 func fetchWithRetry(url string) error {
 ```

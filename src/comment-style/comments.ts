@@ -150,16 +150,24 @@ export function codeIssues(block: CommentBlock): Issue[] {
 		issues.push({ rule: 'not_telegraphic', detail: `Drop where meaning survives: ${[...counts].map(([word, count]) => `${word} ×${count}`).join(', ')}.` });
 	}
 
-	if (prose.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
-		// Lines are measured without links, so text crammed before any link counts too.
-		const lengths = prose.map(line => line.replace(hasLinks, '').trimEnd().length);
-		// Lines may stay even, only grow or only shrink, and tiny steps count as flat.
-		// Line sticking out past its neighbours, up then down or down then up, reads as ragged.
-		const flat = flatStep * Math.max(...lengths);
-		const steps = lengths.slice(1).map((length, index) => length - (lengths[index] ?? 0)).filter(step => Math.abs(step) > flat);
-		const even = Math.min(...lengths) >= minLineRatio * Math.max(...lengths);
-		if (!even && steps.some(step => step > 0) && steps.some(step => step < 0)) {
-			issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} zigzag. Rebalance the sentences so lengths only grow, only shrink, or stay within ${Math.round((1 - minLineRatio) * 100)}%.` });
+	const visible = block.text.map(line => line.trim()).filter(line => line !== '');
+	if (visible.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
+		if (visible.some(line => hasLink.test(line))) {
+			// Link line is widest, so lines above it must widen toward it, measured as seen, link included.
+			const widths = visible.map(line => line.length);
+			if (widths.some((width, index) => index > 0 && width < (widths[index - 1] ?? 0))) {
+				issues.push({ rule: 'uneven_lines', detail: `Line lengths ${widths.join(', ')} dip before the link. Each line should be at least as long as the one above, so the link line ends widest.` });
+			}
+		} else {
+			// Lines may stay even, only grow or only shrink, and tiny steps count as flat.
+			// Line sticking out past its neighbours, up then down or down then up, reads as ragged.
+			const lengths = prose.map(line => line.length);
+			const flat = flatStep * Math.max(...lengths);
+			const steps = lengths.slice(1).map((length, index) => length - (lengths[index] ?? 0)).filter(step => Math.abs(step) > flat);
+			const even = Math.min(...lengths) >= minLineRatio * Math.max(...lengths);
+			if (!even && steps.some(step => step > 0) && steps.some(step => step < 0)) {
+				issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} zigzag. Rebalance the sentences so lengths only grow, only shrink, or stay within ${Math.round((1 - minLineRatio) * 100)}%.` });
+			}
 		}
 	}
 

@@ -11,7 +11,7 @@ test('passes an even, one-sentence-per-line comment inside code', () => {
 	const source = [
 		'const x = 1;',
 		'// Compiles MQL any(list, condition) into CEL loop, which counts each loop step against cost limit.',
-		'// Each nested any gets own loop variable, so items never mix, and each loop stops at first match.',
+		'// Each nested any gets its own loop variable, so items never mix, and each loop stops at first match.',
 		'// Only top-level any over body.links reports matching links, as cel-go macro expansion does: https://github.com/cel-expr/cel-go/blob/f2039bc647bca407d882d90436fc8b91bab1ae62/parser/macro.go#L517-L525',
 		'function lowerAny() {}',
 	].join('\n');
@@ -65,7 +65,7 @@ test('allows a link on its own line only under one or two lines of text', () => 
 
 test('flags a link followed by more text, but not a tail of source lines', () => {
 	const middle = ['const x = 1;', '// Separating results from alarms follows sfptpd: https://github.com/Xilinx-CNS/sfptpd/blob/5ac5b58/src/sfptpd_engine.c#L2032', '// Previous clock error stays open across unknown results, which never count as recovery.', 'run();'].join('\n');
-	assert.deepEqual(rules(middle), [['link_last']]);
+	assert.deepEqual(rules(middle), [['link_last', 'uneven_lines']]);
 	const tail = ['const x = 1;', '// Login flow is adapted from pi: https://github.com/earendil-works/pi/blob/8ce69e9/openrouter.ts', '// Callback server is adapted from pi too: https://github.com/earendil-works/pi/blob/8ce69e9/callback-server.ts', 'run();'].join('\n');
 	assert.deepEqual(rules(tail), [[]]);
 });
@@ -90,13 +90,21 @@ test('limits comments inside code to three lines of text, but not overviews or d
 test('flags two links on one line, but not one link per sentence at the end', () => {
 	const shared = ['const x = 1;', '// Rejects old versions and parses replies: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c https://github.com/beevik/ntp/blob/953b636/ntp4.go', 'run();'].join('\n');
 	assert.deepEqual(rules(shared), [['link_count']]);
-	const each = ['const x = 1;', '// Rejects old NTP versions, as systemd-timesyncd does: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', '// Parsing stays in beevik, which lacks these checks: https://github.com/beevik/ntp/blob/953b636/ntp4.go', 'run();'].join('\n');
+	const each = ['const x = 1;', '// Parsing stays in beevik, which lacks these checks: https://github.com/beevik/ntp/blob/953b636/ntp4.go', '// Rejects old NTP versions, as systemd-timesyncd does: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', 'run();'].join('\n');
 	assert.deepEqual(rules(each), [[]]);
 });
 
 test('flags a line over 120 characters of text, not counting links', () => {
 	assert.deepEqual(rules(`run();\n// ${'x'.repeat(120)}.\nrun();`), [['too_wide']]);
 	assert.deepEqual(rules(`run();\n// ${'x'.repeat(100)}: https://github.com/beevik/ntp/blob/953b63646f5273d44de88b68e5862ad155ed4660/ntp4.go#L262\nrun();`), [[]]);
+});
+
+test('with a link, lines must widen toward the link line, measured with the link', () => {
+	const url = 'https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4d5b6cb24f814f5543d85b9138afb4cba/ntp-proto/src/source.rs#L715';
+	const good = ['run();', '// Report rate-limit requests and refusals as separate reasons, as ntpd-rs', '// Several reasons may appear together, and none is presented as sole cause', `// ${url}`, 'run();'].join('\n');
+	const bad = ['run();', '// Report rate-limit requests and refusals as separate reasons, as ntpd-rs does', '// Several reasons may appear together, and none is presented as sole cause', `// ${url}`, 'run();'].join('\n');
+	assert.deepEqual(rules(good), [[]]);
+	assert.deepEqual(rules(bad), [['uneven_lines']]);
 });
 
 test('flags a colon touching a link', () => {
