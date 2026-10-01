@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { APIError, TypeSafeError } from '@typesafe-ai/sdk';
 import { createInterface } from 'node:readline/promises';
@@ -11,9 +12,11 @@ import { jev, model, providerOf, providers, type Ask, type Report } from './requ
 
 const usage = `Usage:
   telegrapher comment-style [--file <path>]... [--diff <from>..<to>] [--preview | --json]
+  telegrapher comment-style --stdin [--file <path>]
   telegrapher auth [--browser | --no-browser | --stdin]
 
 comment-style checks comments in whole files, a commit range, or by default the staged changes.
+--stdin checks a draft comment, optionally with the code line it documents, as if it sat in --file, which stays unchanged.
 It prints only what needs a look. --preview prints the request without sending it.
 --json prints every answer, including unflagged ones, for tuning. Keep that output out of committed files.
 auth saves a TypeSafe or OpenRouter key for every project, readable only by you.
@@ -44,7 +47,8 @@ function prepare(): Prepared | undefined {
 	if (positionals.length !== 1) return undefined;
 
 	if (check === 'comment-style') {
-		const request = readCommentStyle({ files: values.file, diff: values.diff });
+		if (values.stdin && values.file.length > 1) return undefined;
+		const request = readCommentStyle({ files: values.file, diff: values.diff, draft: values.stdin ? readFileSync(0, 'utf8') : undefined });
 
 		return { preview: { model, questions: commentQuestions, ...request }, run: ask => runCommentStyle(request, ask) };
 	}

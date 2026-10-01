@@ -42,14 +42,19 @@ export const questions: Record<(typeof questionNames)[number], NoulQuestion & { 
 export type CheckedComment = CommentBlock & { issues: Issue[]; packageDoc: string };
 export type CommentStyleRequest = { pack: string; comments: CheckedComment[] };
 
-// Whole files check every comment. Otherwise only comments touching changed lines, staged by default.
-export function readCommentStyle(options: { files: string[]; diff?: string }): CommentStyleRequest {
+// Whole files check every comment, and otherwise only comments touching changed lines, staged by default.
+// Draft is checked as if it sat inside code of named file, so agents can test rewrite before editing.
+export function readCommentStyle(options: { files: string[]; diff?: string; draft?: string }): CommentStyleRequest {
 	const blocks: CommentBlock[] = [];
 
 	// Git revision the files are read from: undefined for the working tree, '' for the staged index.
 	let target: string | undefined;
 
-	if (options.files.length > 0) {
+	if (options.draft !== undefined) {
+		const path = options.files[0] ?? 'draft.go';
+		const code = path.endsWith('.go') ? 'var _ = 0' : 'void 0;';
+		blocks.push(...findComments(path, `${code}\n${options.draft}`).map(block => ({ ...block, line: block.line - 1, endLine: block.endLine - 1 })));
+	} else if (options.files.length > 0) {
 		for (const path of options.files) blocks.push(...findComments(path, readFileSync(path, 'utf8')));
 	} else {
 		const range = options.diff === undefined ? undefined : checkRange(options.diff);

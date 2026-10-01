@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { preview, runCommentStyle, type CommentStyleRequest } from './check.ts';
+import { preview, readCommentStyle, runCommentStyle, type CommentStyleRequest } from './check.ts';
 import { codeIssues, findComments } from './comments.ts';
 import { jev } from '../request.ts';
 
@@ -61,4 +61,13 @@ test('preview shortens a long first line at a word', () => {
 	assert.equal(preview('short line'), 'short line');
 	assert.equal(preview('Maps each file in a zero-context diff to the line numbers its new version adds or changes.', 40), 'Maps each file in a zero-context diff…');
 	assert.equal(preview('x'.repeat(50), 10), `${'x'.repeat(9)}…`);
+});
+
+test('checks a draft comment as if it sat inside code of the named file', () => {
+	const zigzag = ['// ntpReplyChecks adds reply checks that beevik lacks, without replacing its parser.', `// It rejects old versions, as systemd-timesyncd does, and missing receive timestamps (RFC 5905 section 6) too.`, '// It hands replies to caller.', 'type ntpReplyChecks struct {'].join('\n');
+	const [comment] = readCommentStyle({ files: ['engine/ntp_query.go'], draft: zigzag }).comments;
+
+	assert.equal(comment?.line, 1);
+	assert.equal(comment?.goName, 'ntpReplyChecks');
+	assert.deepEqual(comment?.issues.map(issue => issue.rule), ['uneven_lines']);
 });

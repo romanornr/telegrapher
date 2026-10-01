@@ -116,6 +116,7 @@ npm i -g github:romanornr/telegrapher
 telegrapher comment-style --diff origin/main..HEAD # comments in your commits only
 telegrapher comment-style                          # comments touched by staged changes
 telegrapher comment-style --file internal/foo.go   # one whole file
+telegrapher comment-style --stdin --file internal/foo.go < draft.txt   # a draft comment, before editing the file
 ```
 
 `--diff` checks only comments you added or changed, so their existing code stays their business.
