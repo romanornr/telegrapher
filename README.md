@@ -104,20 +104,19 @@ Each `-` block is the original comment. Each `+` block is the final version, whi
 
 ## Try it
 
-Needs Node 24 or newer. There is no npm release yet, so run it from a clone:
+Needs Node 24 or newer. Run it straight from GitHub, inside any repository, with nothing to install:
 
 ```sh
-git clone https://github.com/romanornr/telegrapher.git
-cd telegrapher && npm ci
-alias telegrapher="node $PWD/src/main.ts comment-style"
+npx github:romanornr/telegrapher comment-style --diff origin/main..HEAD
 ```
 
-Then, inside any repository:
+Or install the `telegrapher` command once:
 
 ```sh
-telegrapher --diff origin/main..HEAD # comments in your commits only
-telegrapher                          # comments touched by staged changes
-telegrapher --file internal/foo.go   # one whole file
+npm i -g github:romanornr/telegrapher
+telegrapher comment-style --diff origin/main..HEAD # comments in your commits only
+telegrapher comment-style                          # comments touched by staged changes
+telegrapher comment-style --file internal/foo.go   # one whole file
 ```
 
 `--diff` checks only comments you added or changed, so their existing code stays their business.
@@ -128,10 +127,9 @@ Paste this into Claude Code, Codex or another agent with a shell, inside the pro
 
 ```text
 Check the code comments in my changes with telegrapher.
-1. If ~/.cache/telegrapher is missing, clone https://github.com/romanornr/telegrapher there and run npm ci.
-2. From this project, run: node ~/.cache/telegrapher/src/main.ts comment-style --diff origin/main..HEAD
-3. Rewrite each flagged comment to pass the rule it names. Keep the meaning, and never make it cryptic.
-4. Run it again until nothing is flagged. Show me the comment diff before committing.
+1. From this project, run: npx github:romanornr/telegrapher comment-style --diff origin/main..HEAD
+2. Rewrite each flagged comment to pass the rule it names. Keep the meaning, and never make it cryptic.
+3. Run it again until nothing is flagged. Show me the comment diff before committing.
 Never ask me for the Jev key or read it. If it is not set, run code checks only.
 ```
 
