@@ -123,7 +123,8 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	}
 
 	if (prose.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
-		const lengths = prose.map(line => line.length);
+		// URL inside sentence would decide balance alone, so lines are measured without it.
+		const lengths = prose.map(line => line.replace(/https?:\/\/\S+/g, '').trimEnd().length);
 		if (Math.min(...lengths) < minLineRatio * Math.max(...lengths)) issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} differ by more than ${Math.round((1 - minLineRatio) * 100)}%. Rebalance the sentences.` });
 	}
 

@@ -26,7 +26,7 @@ test('reports code issues and Jev answers above the threshold, one request per c
 	assert.equal(report.summary, 'comment-style: 2 of 2 comments need a look ($0.000200)');
 	assert.match(report.findings[0] ?? '', /semicolon/);
 	assert.doesNotMatch(report.findings[0] ?? '', /jargon/);
-	assert.match(report.findings[1] ?? '', /jargon \(Jev 90%\): uses a term a newcomer would need to look up\. Jev does not say which/);
+	assert.match(report.findings[1] ?? '', /jargon \(Jev 90%\): uses jargon where plain words would do\. Jev does not say which word/);
 });
 
 test('does not ask whether a Go doc comment on an exported name restates the code', async () => {

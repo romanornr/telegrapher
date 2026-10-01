@@ -52,7 +52,7 @@ client.go:11  Retry the request a few times; the server can still be starting up
   too_long: 6 lines of text inside code, above 4. Links do not count.
   not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
   uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 differ by more than 15%. Rebalance the sentences.
-  jargon (Jev 81%): uses a term a newcomer would need to look up. Jev does not say which, so explain each technical term once in plain words
+  jargon (Jev 81%): uses jargon where plain words would do. Jev does not say which word, and established technical terms are fine
   status (Jev 91%): describes status or progress, not a lasting fact
 ```
 
@@ -213,7 +213,7 @@ It is a separate model from whatever agent wrote the comment, so it does not gra
 Jev is a paid service, used directly from TypeSafe or through OpenRouter, and costs a fraction of a cent per comment.
 Only the comments, files and diff you pass are sent, so never pass secrets or private code.
 
-- `jargon`: a term a newcomer would need to look up.
+- `jargon`: in-house shorthand or vague wording where plain words would do. Established technical terms, such as RFC 8252 or a protocol's own terms, are fine.
 - `restates_code`: only repeats what the code does.
 - `status`: describes rollout progress instead of a lasting fact.
 - `unexplained_source`: cites a source without saying which idea it takes.

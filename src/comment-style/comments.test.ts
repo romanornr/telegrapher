@@ -31,6 +31,17 @@ test('flags a sentence wrapped onto the next line, and uneven lines', () => {
 	assert.deepEqual(rules(source), [['wrapped_sentence', 'two_sentences', 'uneven_lines']]);
 });
 
+test('measures line length without a URL inside the sentence', () => {
+	const source = [
+		'const x = 1;',
+		'// Report refusals and rate limits as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4/src.rs#L715',
+		'// Several reasons may appear together, and none is presented as sole cause.',
+		'run();',
+	].join('\n');
+
+	assert.deepEqual(rules(source), [[]]);
+});
+
 test('flags semicolons outside code spans, doc paths and ADR numbers', () => {
 	assert.deepEqual(rules('run();\n// Flags, not counts; several can apply.\nrun();'), [['semicolon']]);
 	assert.deepEqual(rules('run();\n// Joins with `a; b` inside code.\nrun();'), [[]]);

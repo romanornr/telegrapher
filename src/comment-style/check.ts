@@ -25,7 +25,7 @@ const questionNames = ['jargon', 'restates_code', 'status', 'unexplained_source'
 // labels are short texts for terminal output, while saved run keeps full questions.
 // Source and confidence sit beside rule name, so readers never take "Jev" for flagged word.
 const labels: Record<(typeof questionNames)[number], string> = {
-	jargon: 'uses a term a newcomer would need to look up. Jev does not say which, so explain each technical term once in plain words',
+	jargon: 'uses jargon where plain words would do. Jev does not say which word, and established technical terms are fine',
 	restates_code: 'only repeats what the code does',
 	status: 'describes status or progress, not a lasting fact',
 	unexplained_source: 'cites a source without saying what idea it takes',
@@ -33,7 +33,7 @@ const labels: Record<(typeof questionNames)[number], string> = {
 
 // Each asks whether a rule is broken, so a high probability of yes is a flag.
 export const questions: Record<(typeof questionNames)[number], NoulQuestion & { instructions: string }> = {
-	jargon: question('Does `state.comment` use a technical term or abbreviation that a developer new to this codebase would need to look up, without explaining it? Terms named in `state.code_after` or explained in `state.package_doc` do not count.'),
+	jargon: question('Does `state.comment` use jargon: in-house shorthand, slang, or a vague or invented term where plain words would say the same? Established technical terms with one fixed meaning in their field, such as protocol names, standard numbers like RFC 8252, and standard terms of that field, do not count. Terms named in `state.code_after` or explained in `state.package_doc` do not count either.'),
 	restates_code: question('Does `state.comment` only describe what `state.code_after` visibly does, adding no reason, constraint or consequence?'),
 	status: question('Does `state.comment` describe project status or progress, such as planned work, recent changes or rollout state, instead of a fact that stays true?'),
 	unexplained_source: question('Does `state.comment` cite an outside source, such as a link, paper or project, without stating which idea it takes from that source?'),
