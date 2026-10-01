@@ -1,2 +1,6 @@
 telegrapher
 Copyright 2026 romanornr
+
+src/openrouter-login.ts adapts code from pi (https://github.com/earendil-works/pi),
+Copyright (c) 2025 Mario Zechner, MIT License, and from gemini-cli
+(https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, Apache License 2.0.

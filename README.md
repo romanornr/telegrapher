@@ -134,7 +134,61 @@ Never ask me for the Jev key or read it. If it is not set, run code checks only.
 ```
 
 Give telegrapher your Jev key yourself, never through a prompt.
-Run `npx github:romanornr/telegrapher auth` once, or set `JEV_API_KEY` in your shell profile.
+Run `npx github:romanornr/telegrapher auth` once in your own terminal, or set `JEV_API_KEY` in your shell profile.
+If an agent wants to sign in for you, it must ask first and then run `telegrapher auth --browser`.
+That opens OpenRouter in your browser, so the key goes straight to telegrapher and the agent never sees it.
+
+## Set up a Jev key
+
+Code checks need no key. Jev checks take one from TypeSafe or OpenRouter, saved once for every project.
+
+```sh
+telegrapher auth                                       # paste a key, or press Enter to sign in with OpenRouter
+telegrapher auth --browser                             # sign in with OpenRouter in your browser
+telegrapher auth --no-browser                          # SSH or container: OpenRouter shows a code to paste
+pass show openrouter | telegrapher auth --stdin        # from a password manager, never typed or printed
+```
+
+Browser sign-in creates a key named `telegrapher`, which you can find and revoke in your OpenRouter dashboard.
+Before it opens, telegrapher prints "Approve only if you started this", since an agent may have started it.
+It never accepts a key as an argument, because arguments end up in shell history and agent transcripts.
+
+telegrapher looks for a key in this order and names the one it uses, never the key itself:
+
+1. `JEV_API_KEY`, to override for one run or in CI.
+2. The saved key in `~/.config/telegrapher/credentials`, readable only by you.
+3. `OPENROUTER_API_KEY`, which other tools share, so it never replaces a key you saved for telegrapher.
+
+### Keep the key from Claude Code
+
+An agent runs as you, so it can read the saved key like any of your files.
+Claude Code's sandbox can mask the file: commands see a placeholder, and the real key only reaches Jev's hosts.
+Add this to `~/.claude/settings.json`, since Claude Code ignores masks in a project's settings:
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "tlsTerminate": {},
+      "allowedDomains": ["openrouter.ai", "api.typesafe.ai"]
+    },
+    "credentials": {
+      "files": [
+        {
+          "path": "~/.config/telegrapher/credentials",
+          "mode": "mask",
+          "injectHosts": ["openrouter.ai", "api.typesafe.ai"]
+        }
+      ]
+    }
+  }
+}
+```
+
+On Linux and WSL2, Jev checks keep working inside the sandbox.
+On macOS, Claude Code blocks the file instead, so only code checks run there.
+See [Claude Code's sandbox docs](https://code.claude.com/docs/en/sandboxing#mask-credential-files).
 
 ## What it checks
 
@@ -152,7 +206,7 @@ Code checks run locally, free, with no account or key:
 - `name_first`: a Go comment does not start with the name it documents.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
-`telegrapher auth` saves it to `~/.config/telegrapher/credentials`, readable only by you. `JEV_API_KEY` wins when set.
+See [Set up a Jev key](#set-up-a-jev-key).
 [Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
 Each answer is yes or no with a probability, so telegrapher flags only answers at 0.65 or above.
 It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
