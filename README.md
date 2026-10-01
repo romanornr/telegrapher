@@ -200,15 +200,17 @@ Code checks run locally, free, with no account or key:
 
 - `wrapped_sentence`: a sentence continues on the next line.
 - `semicolon`: a semicolon joins two sentences. Two sentences may share a line when that evens out the shape.
+- `crowded_line`: three or more sentences share one line.
 - `uneven_lines`: without a link, line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. With a link, each line, measured with its link, must be at least as long as the line above, so the link line ends widest.
-- `too_long`: more than 3 lines of text inside code. Links do not count.
-- `too_wide`: a line holds more than 120 characters of text. Links do not count.
+- `too_long`: more than 3 lines of text inside code. Links do not count. Keep the summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.
+- `too_wide`: a line holds more than 120 characters of text. Links do not count. Split it into two sentences on separate lines, or cut words.
 - `not_telegraphic`: any article or connective word that can usually go: a, an, the, can, own, so, even, still, just, really, basically, actually, simply, very, quite, and the phrases "these are", "at once" and "for example". It names them, and you decide where meaning survives.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
 - `link_last`: text follows a link. Each link ends its line, and linked lines come last. Never move the summary line.
 - `link_colon`: a link follows text without a colon.
 - `link_space`: a colon touches a link. Put a space between them.
+- `link_mismatch`: a link ends a sentence that never names its source, as when NIST's link ends a sentence about NICT. The package folder counts as named, so okx.com docs need no name inside `exchanges/okx`.
 - `link_count`: two links share one line. End each sentence a link supports with its own link, on the last lines.
 - `link_line`: a link on its own line needs one or two lines of text above it, and the comment stays within three lines. Otherwise end the last line of text with a colon, then the link.
 
@@ -216,10 +218,10 @@ Rewrites are compared with the committed comment above the same code: `HEAD` for
 A draft passed with `--stdin` pairs only when its code lines match one committed comment. Otherwise telegrapher says rewrite checks were skipped.
 
 - `link_added`: a rewrite adds a link, or repeats one, that the committed comment did not have.
-- `link_dropped`: a rewrite drops a link the committed comment had.
+- `link_dropped`: a rewrite drops a link the committed comment had. A link added elsewhere in the same change, in another comment or in docs, counts as moved, not dropped.
 - `grew`: a rewrite has more lines than the committed comment, blank lines included. Only exception: one extra line for each link that shared a line, so it gets its own.
-- `summary_moved`: the committed comment's first line is no longer first.
-- `comment_deleted`: in `--diff` and staged changes, a comment is gone while its code stays. With Jev, deleting a comment that only repeats its code is fine, except a Go doc comment on an exported name or a comment with a link.
+- `summary_moved`: a later line keeps more of the committed first line's words than the new first line does, even after rewording.
+- `comment_deleted`: in `--diff` and staged changes, a comment is gone while its code stays. A new comment a few lines above the old code counts as moved and is checked as a rewrite. With Jev, deleting a comment that only repeats its code is fine, except a Go doc comment on an exported name or a comment with a link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
 See [Set up a Jev key](#set-up-a-jev-key).

@@ -1,13 +1,14 @@
 // Finds comments in TypeScript and Go source, and checks style rules plain code can measure.
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
-export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string; codeKey: string[] };
-export type Issue = { rule: 'wrapped_sentence' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_colon' | 'link_space' | 'link_count' | 'too_wide' | 'link_added' | 'link_dropped' | 'grew' | 'summary_moved' | 'comment_deleted'; detail: string };
+export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; size: number; codeAfter: string; codeKey: string[] };
+export type Issue = { rule: 'wrapped_sentence' | 'crowded_line' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_colon' | 'link_space' | 'link_count' | 'link_mismatch' | 'too_wide' | 'link_added' | 'link_dropped' | 'grew' | 'summary_moved' | 'comment_deleted'; detail: string };
 
 const maxInlineLines = 3;
 const maxLineWidth = 120;
 const minLineRatio = 0.85;
-const urlOnly = /^https?:\/\/\S+$/;
+const urlOnly = /^<?https?:\/\/\S+$/;
+const linkStart = /<?https?:\/\//;
 const hasLink = /https?:\/\/\S+/;
 const hasLinks = /https?:\/\/\S+/g;
 const endsInLink = /https?:\/\/\S+$/;
@@ -63,15 +64,24 @@ export function findComments(path: string, content: string): CommentBlock[] {
 
 		const codeAfter = lines.slice(i).filter(line => line.trim() !== '').slice(0, 12).join('\n');
 		const goName = path.endsWith('.go') ? goDeclaration.exec(lines[i] ?? '')?.[1] ?? null : null;
-		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, codeAfter, codeKey: codeKey(lines.slice(i)) });
+		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, size: i - start, codeAfter, codeKey: codeKey(lines.slice(i)) });
 	}
 
 	return blocks;
 }
 
-// codeKey is code below comment without blanks, comments or spacing: pairing survives reformatting and comment edits.
-export function codeKey(lines: string[]): string[] {
-	return lines.map(line => line.trim().replace(/\s+/g, ' ')).filter(line => line !== '' && !/^(?:\/\/|\/\*|\*\/|\* |\*$)/.test(line)).slice(0, 6);
+// codeKey is code below comment without blanks, comments or any spacing: pairing survives reformatting and comment edits.
+// Up to 40 lines, letting repeated test setups differ somewhere.
+export function codeKey(lines: string[], length = 40): string[] {
+	const key: string[] = [];
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (trimmed === '' || /^(?:\/\/|\/\*|\*\/|\* |\*$)/.test(trimmed)) continue;
+		key.push(trimmed.replace(/\s+/g, ''));
+		if (key.length === length) break;
+	}
+
+	return key;
 }
 
 // Fences come in pairs, and unclosed one hides nothing from checks.
@@ -113,8 +123,14 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	if (wrapped.length > 0) issues.push({ rule: 'wrapped_sentence', detail: `${wrapped.length} sentence(s) continue on the next line. Keep each sentence on one line.` });
 
 	// Two sentences may share line when that evens out shape, but semicolon hides where first one ends.
-	if (prose.some(line => /;/.test(line.replace(/`[^`]*`|"[^"]*"/g, '').replace(hasLinks, '')))) {
+	if (prose.some(line => /;/.test(line.replace(/`[^`]*`|"[^"]*"|'[^'\s]'/g, '').replace(hasLinks, '')))) {
 		issues.push({ rule: 'semicolon', detail: 'Semicolon joins two sentences. End the first with a period.' });
+	}
+
+	// Two short sentences may share line for better shape, never three.
+	// Sentence ends after letter or digit, keeping "0.1 seconds" and "cel.bind" one sentence.
+	if (prose.some(line => (line.replace(/`[^`]*`|"[^"]*"/g, '').replace(hasLinks, '').match(/[\p{L}\p{N}][.!?]["')]* +\p{Lu}/gu) ?? []).length >= 2)) {
+		issues.push({ rule: 'crowded_line', detail: 'Three or more sentences share one line. Keep at most two short ones together.' });
 	}
 
 	// Go doc comments start with the exact name they document, as go doc and revive expect.
@@ -134,8 +150,25 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	}
 
 	// Colon marks what follows as source of sentence before it.
-	if (lines.some(line => !urlOnly.test(line) && hasLink.test(line) && !line.slice(0, line.search(hasLink)).trimEnd().endsWith(':'))) {
+	if (lines.some(line => !urlOnly.test(line) && hasLink.test(line) && !line.slice(0, line.search(linkStart)).trimEnd().endsWith(':'))) {
 		issues.push({ rule: 'link_colon', detail: 'Link follows text without a colon. Put a colon and a space before the link.' });
+	}
+
+	// Link backs sentence naming its source, as RFC 5905 names rfc-editor.org/rfc/rfc5905, and shared name ties them.
+	// Bare link line backs text above it.
+	const mismatched = lines.filter((line, index) => {
+		const link = line.match(hasLink)?.[0];
+		if (link === undefined) return false;
+		const sentence = urlOnly.test(line) ? lines.slice(0, index).filter(above => !urlOnly.test(above)).join(' ') : line.slice(0, line.search(hasLink));
+		if (names(sentence).length === 0) return false;
+		// Package folder counts as named, as okx.com docs are plain inside exchanges/okx.
+		const named = joined(names(`${sentence} ${block.path.split('/').at(-2) ?? ''}`));
+		const source = joined(names(link.replace(/#L\d+(?:-L\d+)?$/, '')));
+
+		return !source.some(part => named.some(name => sameName(part, name)));
+	});
+	if (mismatched.length > 0) {
+		issues.push({ rule: 'link_mismatch', detail: `Sentence never names source of ${bareLinks(mismatched[0] ?? '')[0]}. End the sentence that names it with this link, or name it here.` });
 	}
 
 	// Two links on one line read as sources for one sentence, even when each backs different one.
@@ -150,17 +183,18 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	// Link with no text above it gives no reason to follow it.
 	if (lines.some(line => urlOnly.test(line))) {
 		if (prose.length === 0) issues.push({ rule: 'link_line', detail: 'Link stands alone without text. Say what the source supports, then end that line with a colon and the link.' });
-		else if (prose.length > 2 || lines.length > 3) issues.push({ rule: 'link_line', detail: 'Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.' });
+		else if (prose.length > 2 || (block.kind === 'line' ? block.size : block.text.length) > 3) issues.push({ rule: 'link_line', detail: 'Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.' });
 	}
 
-	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count.` });
+	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count. Keep summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.` });
 
 	// Width cap stops text from being folded into one long line to stay within line limit.
 	const widest = Math.max(0, ...prose.map(line => line.replace(hasLinks, '').trimEnd().length));
-	if (widest > maxLineWidth) issues.push({ rule: 'too_wide', detail: `Line has ${widest} characters of text, above ${maxLineWidth}. Links do not count. Cut words, not meaning.` });
+	if (widest > maxLineWidth) issues.push({ rule: 'too_wide', detail: `Line has ${widest} characters of text, above ${maxLineWidth}. Links do not count. Split it into two sentences on separate lines, or cut words, not meaning.` });
 
 	// Code spans, quoted strings and links are data, not prose.
-	let plain = prose.join(' ').replace(/`[^`]*`|"[^"]*"/g, ' ').replace(hasLinks, ' ').toLowerCase().replace(/\s+/g, ' ');
+	// Hyphenated compound such as once-an-hour is one word, and its parts are no filler.
+	let plain = prose.join(' ').replace(/`[^`]*`|"[^"]*"/g, ' ').replace(hasLinks, ' ').replace(/[\p{L}\p{N}']+(?:-[\p{L}\p{N}']+)+/gu, ' ').toLowerCase().replace(/\s+/g, ' ');
 	const counts = new Map<string, number>();
 
 	for (const phrase of droppablePhrases) {
@@ -230,41 +264,77 @@ export function changedLines(diff: string): Map<string, Set<number>> {
 	return changed;
 }
 
-// linksIn counts links without angle brackets or trailing punctuation, and final period never makes link look new.
-// Counts, not set, making repeated link on another line count as added.
+// URL parts every link shares, which name no source.
+const plainParts = new Set(['http', 'https', 'www', 'com', 'org', 'net', 'io', 'dev', 'html', 'htm', 'md', 'pdf', 'blob', 'tree', 'main', 'master', 'src', 'docs', 'doc', 'en', 'cgi', 'github', 'gitlab', 'raw', 'githubusercontent']);
+
+// names splits text into lowercase name parts, letters and digits apart: "RFC 5905" and rfc5905 share rfc and 5905.
+// Commit hashes and one-letter parts name nothing.
+function names(text: string): string[] {
+	return (text.toLowerCase().match(/[a-z]+|\d+/g) ?? []).filter(part => part.length > 1 && !plainParts.has(part) && !/^[0-9a-f]{7,40}$/.test(part));
+}
+
+// joined adds each pair of neighbouring parts: "NTP Pool" names ntppool.org, and gate.io names gateio.
+function joined(parts: string[]): string[] {
+	return [...parts, ...parts.slice(1).map((part, index) => `${parts[index] ?? ''}${part}`)];
+}
+
+// Longer names match inside each other: currencyconverter names currencyconverterapi.com.
+function sameName(a: string, b: string): boolean {
+	return a === b || (Math.min(a.length, b.length) >= 4 && (a.includes(b) || b.includes(a)));
+}
+
+// bareLinks drops angle brackets and trailing punctuation, and final period never makes link look new.
+export function bareLinks(text: string): string[] {
+	return (text.match(hasLinks) ?? []).map(link => link.replace(/[.,;:)>]+$/, ''));
+}
+
+// linksIn counts links, not set, making repeated link on another line count as added.
 function linksIn(text: string[]): Map<string, number> {
 	const counts = new Map<string, number>();
-	for (const link of text.join(' ').match(hasLinks) ?? []) {
-		const bare = link.replace(/[.,;:)>]+$/, '');
-		counts.set(bare, (counts.get(bare) ?? 0) + 1);
-	}
+	for (const link of bareLinks(text.join(' '))) counts.set(link, (counts.get(link) ?? 0) + 1);
 
 	return counts;
 }
 
-// Summary line compared without links, closing colon or spacing: moving its link alone keeps it in place.
-function summaryOf(line: string): string {
-	return line.replace(hasLinks, '').replace(/[\s:<]+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+// Summary words without links or punctuation, finding moved summary after rewording or new link.
+function summaryWords(line: string): Set<string> {
+	return new Set(line.replace(hasLinks, ' ').toLowerCase().match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu) ?? []);
+}
+
+// overlap is share of summary words line keeps.
+function overlap(summary: Set<string>, line: string): number {
+	const words = summaryWords(line);
+
+	return summary.size === 0 ? 0 : [...summary].filter(word => words.has(word)).length / summary.size;
 }
 
 // rewriteIssues compares comment with its committed version, checking rewrite keeps links, summary and size.
-export function rewriteIssues(text: string[], previous: string[]): Issue[] {
+// Link added elsewhere in same change moved with its fact, next to other code or into docs: not dropped.
+// Sizes count blank comment lines at edges too, which text leaves out.
+export function rewriteIssues(text: string[], previous: string[], moved: ReadonlySet<string> = new Set(), sizes = { now: text.length, before: previous.length }): Issue[] {
 	const issues: Issue[] = [];
 	const now = linksIn(text);
 	const before = linksIn(previous);
 
 	if ([...now].some(([link, count]) => count > (before.get(link) ?? 0))) issues.push({ rule: 'link_added', detail: 'Rewrite adds a link the previous comment did not have. Keep only its links.' });
-	if ([...before].some(([link, count]) => count > (now.get(link) ?? 0))) issues.push({ rule: 'link_dropped', detail: 'Rewrite drops a link the previous comment had. Keep every link, at the end of the sentence it supports.' });
-
-	// Blank lines count too. Only exception: giving each link that shared line separate line.
-	const split = previous.reduce((extra, line) => extra + Math.max(0, (line.match(hasLinks) ?? []).length - 1), 0);
-	if (text.length > previous.length + split) {
-		issues.push({ rule: 'grew', detail: `Rewrite has ${text.length} lines, previous comment had ${previous.length}. Never add lines${split > 0 ? `, except ${split} to give each link its own line` : ''}.` });
+	if ([...before].some(([link, count]) => count > (now.get(link) ?? 0) && !moved.has(link))) {
+		issues.push({ rule: 'link_dropped', detail: 'Rewrite drops a link the previous comment had. Keep it at the end of the sentence it supports, or move it with its fact next to the code it explains or into docs, in the same change.' });
 	}
 
-	const summary = summaryOf(previous[0] ?? '');
-	const moved = summary === '' ? -1 : text.findIndex(line => summaryOf(line) === summary);
-	if (moved > 0) issues.push({ rule: 'summary_moved', detail: `First line of the previous comment is now line ${moved + 1}. Keep it first, and move links or other lines instead.` });
+	// Blank lines count too. Only exception: giving each link that shared line separate line.
+	// Exception holds only once links no longer share lines.
+	const shared = (lines: string[]) => lines.reduce((extra, line) => extra + Math.max(0, (line.match(hasLinks) ?? []).length - 1), 0);
+	const split = shared(text) === 0 ? shared(previous) : 0;
+	if (sizes.now > sizes.before + split) {
+		issues.push({ rule: 'grew', detail: `Rewrite has ${sizes.now} lines, previous comment had ${sizes.before}. Never add lines${split > 0 ? `, except ${split} to give each link its own line` : ''}.` });
+	}
+
+	// Summary moved when later line keeps more of its words than first line, and at least half.
+	const summary = summaryWords(previous.find(line => line.trim() !== '') ?? '');
+	const scores = text.map(line => overlap(summary, line));
+	const best = scores.indexOf(Math.max(...scores));
+	const position = best > 0 && (scores[best] ?? 0) >= 0.5 && (scores[best] ?? 0) > (scores[0] ?? 0) ? best : -1;
+	if (position > 0) issues.push({ rule: 'summary_moved', detail: `First line of the previous comment is now line ${position + 1}. Keep it first, and move links or other lines instead.` });
 
 	return issues;
 }

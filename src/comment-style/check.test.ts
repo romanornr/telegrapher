@@ -186,3 +186,51 @@ test('always flags a deleted doc comment on an exported Go name', async () => {
 	assert.equal(asked, 0);
 	assert.match(report.findings[0] ?? '', /comment_deleted/);
 });
+
+test('a link moved with its fact into docs in same change is not dropped', () => {
+	const nist = 'https://tf.nist.gov/tf-cgi/servers.cgi';
+	const before = { 'm.go': `package engine\n\nfunc run() {\n\t// Checks every 15 minutes respect NIST's 4-second spacing: ${nist}\n\tcheck()\n}\n`, 'm.md': '# NTP\n' };
+	const moved = { 'm.go': 'package engine\n\nfunc run() {\n\t// Checks every 15 minutes respect public server limits.\n\tcheck()\n}\n', 'm.md': `# NTP\n\nChecks respect NIST's 4-second spacing: ${nist}\n` };
+	const dropped = { 'm.go': moved['m.go'], 'm.md': '# NTP\n' };
+
+	const rules = (after: Record<string, string>) => inRepo([before, after], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.flatMap(comment => comment.issues.map(issue => issue.rule)));
+	assert.deepEqual(rules(moved), []);
+	assert.deepEqual(rules(dropped), ['link_dropped']);
+});
+
+test('a draft says whether it is new or matches several committed comments', () => {
+	inRepo([{ 'x.go': 'package x\n\n// A.\nconst (\n\ta = 1\n)\n\n// B.\nconst (\n\tb = 2\n)\n\nfunc c() {}\n' }], () => {
+		assert.match(readCommentStyle({ files: ['x.go'], draft: '// C does work.\nfunc c() {}' }).notes?.[0] ?? '', /checked as new comment/);
+		assert.match(readCommentStyle({ files: ['x.go'], draft: '// Values.\nconst (' }).notes?.[0] ?? '', /Pass more code lines/);
+	});
+});
+
+
+test('second review: spacing-only code edits and repeated setups neither hide nor invent deletions', () => {
+	const call = (sync: boolean) => `\t_, err = s.Convert(ctx, &Request{\n\t\tExchange: testExchange,\n\t\tAsset: spot,\n\t\tStart: start,\n\t\tEnd: end,\n\t\tInterval: hour,\n\t\tVerbose: true,${sync ? '\n\t\tSync: true,' : ''}\n\t})\n`;
+	const before = { 't_test.go': `package engine\n\nfunc TestX() {\n\t// no trades test\n${call(false)}\t// sync run\n${call(true)}\t// db run\n${call(true)}}\n` };
+	const removed = { 't_test.go': `package engine\n\nfunc TestX() {\n\t// sync run\n${call(true)}\t// db run\n${call(true)}}\n` };
+	const found = inRepo([before, removed], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.filter(comment => comment.deleted).map(comment => comment.text[0]));
+	assert.deepEqual(found, []);
+
+	const spaced = { 'p.go': 'package engine\n\nfunc run() {\n\t// Default fills here, never saved back to config.\n\tpools = defaultNTPServers\n}\n' };
+	const squeezed = { 'p.go': 'package engine\n\nfunc run() {\n\tpools=defaultNTPServers\n}\n' };
+	const deleted = inRepo([spaced, squeezed], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.filter(comment => comment.deleted).map(comment => comment.text[0]));
+	assert.deepEqual(deleted, ['Default fills here, never saved back to config.']);
+});
+
+test('a comment moved just above its old code is checked as rewrite, not deletion', () => {
+	const before = { 'l.go': 'package orderbook\n\nfunc apply() {\n\tif price > 0 {\n\t\t// Only apply changes when zero values are not present, Bitmex\n\t\t// for example sends 0 price values.\n\t\tlevel.Price = price\n\t}\n}\n' };
+	const after = { 'l.go': 'package orderbook\n\nfunc apply() {\n\t// Preserve existing price when amount-only update supplies zero price.\n\tif price > 0 {\n\t\tlevel.Price = price\n\t}\n}\n' };
+	const comments = inRepo([before, after], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments);
+
+	assert.deepEqual(comments.map(comment => [comment.deleted ?? false, comment.previous?.[0]]), [[false, 'Only apply changes when zero values are not present, Bitmex']]);
+});
+
+test('an unchanged comment above changed code is kept, not deleted', () => {
+	const before = { 'k_test.go': 'package coinut\n\n// Please supply your own keys here to do better tests\nconst (\n\tapiKey = ""\n)\n\nfunc TestX() {}\n' };
+	const after = { 'k_test.go': 'package coinut\n\n// Please supply your own keys here to do better tests\nvar (\n\tapiKey = ""\n\tclientID = ""\n)\n\nfunc TestX() {}\n' };
+	const comments = inRepo([before, after], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments);
+
+	assert.deepEqual(comments.filter(comment => comment.deleted), []);
+});

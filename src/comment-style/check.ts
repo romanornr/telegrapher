@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NoulQuestion } from '@typesafe-ai/sdk';
-import { changedLines, codeIssues, codeKey, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
+import { bareLinks, changedLines, codeIssues, codeKey, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
 import { checkRange, git } from '../git.ts';
 import { costOf, judgeOnly, type Ask, type Report, type State } from '../request.ts';
 
@@ -59,7 +59,8 @@ function codeKeys(content: string): { line: number; key: string[] }[] {
 	return lines.flatMap((line, index) => codeKey([line]).length > 0 ? [{ line: index + 1, key: codeKey(lines.slice(index)) }] : []);
 }
 
-type Committed = CommentBlock & { anchor: string[] };
+// unique says whether anchor names one place, since identical code may repeat past 40 lines.
+type Committed = CommentBlock & { anchor: string[]; unique: boolean };
 
 // Anchor is shortest start of code below comment found only once in committed file.
 // Short anchor survives edits further down, such as deleted function, while naming one place.
@@ -69,7 +70,7 @@ function committedComments(path: string, content: string): Committed[] {
 	return findComments(path, content).map(block => {
 		const length = block.codeKey.findIndex((_, index) => keys.filter(key => startsWith(key, block.codeKey.slice(0, index + 1))).length <= 1);
 
-		return { ...block, anchor: length < 0 ? block.codeKey : block.codeKey.slice(0, length + 1) };
+		return { ...block, anchor: length < 0 ? block.codeKey : block.codeKey.slice(0, length + 1), unique: length >= 0 };
 	});
 }
 
@@ -158,23 +159,46 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	// Pairs comment with committed one above same code, nearest first, since rewrites leave code alone.
 	// Draft may carry fewer code lines than anchor, and its line numbers say nothing about place.
 	// Draft pairs only when one committed comment fits.
-	const pairOf = (block: CommentBlock, committed: Committed[]): Committed | undefined => {
-		const candidates = committed.filter(old => startsWith(block.codeKey, old.anchor) || startsWith(old.anchor, block.codeKey));
-		if (options.draft !== undefined) return candidates.length === 1 ? candidates[0] : undefined;
+	const candidatesOf = (block: CommentBlock, committed: Committed[]): Committed[] => committed.filter(old => startsWith(block.codeKey, old.anchor) || startsWith(old.anchor, block.codeKey));
+	// Each committed comment pairs with one new comment at most: two rewrites never share one original.
+	const pairOf = (block: CommentBlock, committed: Committed[], used: Set<Committed>): Committed | undefined => {
+		// Unchanged comment above changed code pairs by its text.
+		const byCode = candidatesOf(block, committed).filter(old => !used.has(old));
+		const candidates = byCode.length > 0 ? byCode : committed.filter(old => !used.has(old) && old.text.join('\n') === block.text.join('\n'));
+		if (options.draft !== undefined && candidates.length !== 1) return undefined;
 		candidates.sort((a, b) => Math.abs(a.line - block.line) - Math.abs(b.line - block.line));
+		const pair = candidates[0];
+		if (pair !== undefined) used.add(pair);
 
-		return candidates[0];
+		return pair;
 	};
+	const usedIn = new Map<string, Set<Committed>>();
+	const usedOf = (path: string): Set<Committed> => usedIn.get(path) ?? usedIn.set(path, new Set()).get(path) ?? new Set();
+
+	// Links this change adds anywhere, including docs, where links dropped from comment may have moved.
+	let added = '';
+	try {
+		added = git(['diff', '-U0', '--no-color', ...(diffMode ? (options.diff === undefined ? ['--cached'] : ['--end-of-options', checkRange(options.diff)]) : ['HEAD'])]);
+	} catch {
+		// Outside repository or before first commit, nothing has moved.
+	}
+	const links = new Set(added.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++')).flatMap(line => bareLinks(line)));
 
 	const notes: string[] = [];
-	const comments: CheckedComment[] = blocks.map(block => {
+	// New comments without committed pair, which deleted comment right above same code may have moved into.
+	const unpaired = new Map<CommentBlock, number>();
+	const comments: CheckedComment[] = blocks.map((block, index) => {
 		const committed = baseOf(block.path);
-		const previous = committed === undefined ? undefined : pairOf(block, committed)?.text;
+		const pair = committed === undefined ? undefined : pairOf(block, committed, usedOf(block.path));
+		if (pair === undefined) unpaired.set(block, index);
+		const previous = pair?.text;
 		if (options.draft !== undefined && committed !== undefined && previous === undefined) {
-			notes.push(`No single committed comment sits above this code in ${block.path}, so rewrite checks were skipped. Pass the code lines below the comment too.`);
+			notes.push(candidatesOf(block, committed).length > 1
+				? `Several committed comments sit above code like this in ${block.path}, so rewrite checks were skipped. Pass more code lines below the comment.`
+				: `No committed comment sits above this code in ${block.path}, so it is checked as new comment.`);
 		}
 		const rewritten = previous !== undefined && previous.join('\n') !== block.text.join('\n');
-		const issues = [...codeIssues(block), ...(rewritten ? rewriteIssues(block.text, previous) : [])];
+		const issues = [...codeIssues(block), ...(rewritten ? rewriteIssues(block.text, previous, links, { now: block.size, before: pair?.size ?? previous.length }) : [])];
 
 		return { ...block, issues, packageDoc: packageDoc(block.path), previous: rewritten ? previous : null };
 	});
@@ -183,13 +207,26 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	for (const [path, content] of changed) {
 		const committed = baseOf(path);
 		if (committed === undefined) continue;
-		const kept = new Set(findComments(path, content).flatMap(block => pairOf(block, committed) ?? []));
+		const kept = new Set<Committed>();
+		for (const block of findComments(path, content)) pairOf(block, committed, kept);
 		const keys = codeKeys(content);
 
+		// Repeated code leaves no single place to compare, and deletion there stays unreported rather than guessed.
 		for (const old of committed) {
-			if (kept.has(old)) continue;
+			if (kept.has(old) || !old.unique) continue;
 			const at = keys.find(entry => startsWith(entry.key, old.anchor));
 			if (at === undefined) continue;
+
+			// Comment moved up to few lines above its old code, as above enclosing if, is rewrite, not deletion.
+			const near = [...unpaired.keys()].find(block => block.path === path && at.line - block.endLine >= 1 && at.line - block.endLine <= 4);
+			const index = near === undefined ? undefined : unpaired.get(near);
+			const moved = index === undefined ? undefined : comments[index];
+			if (near !== undefined && moved !== undefined) {
+				unpaired.delete(near);
+				comments[index ?? 0] = { ...moved, issues: [...moved.issues, ...rewriteIssues(near.text, old.text, links, { now: near.size, before: old.size })], previous: old.text };
+				continue;
+			}
+
 			comments.push({
 				...old, line: at.line, endLine: at.line, packageDoc: packageDoc(path), previous: null, deleted: true,
 				issues: [{ rule: 'comment_deleted', detail: 'Comment deleted while its code stays. Put it back and rewrite it.' }],
@@ -247,7 +284,7 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 		findings,
 		notes: request.notes,
 		next: findings.length === 0 ? undefined : 'Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing until nothing is flagged.',
-		record: { pack: request.pack, comments: answered },
+		record: { pack: request.pack, notes: request.notes ?? [], comments: answered },
 	};
 }
 
