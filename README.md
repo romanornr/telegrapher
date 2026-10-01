@@ -205,6 +205,7 @@ Code checks run locally, free, with no account or key:
 - `name_first`: a Go comment does not start with the name it documents.
 - `link_last`: a link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment, and never move the summary line.
 - `link_space`: a colon touches a link. Put a space between them.
+- `link_count`: two links share one line. End each sentence a link supports with its own link, on the last lines.
 - `link_line`: a link has its own line under three or more lines of text. End the last line with a colon, then the link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.

@@ -73,6 +73,13 @@ test('limits comments inside code to three lines of text, but not overviews or d
 	assert.deepEqual(rules(`run();\n/**\n${four.replaceAll('//', ' *')}\n */\nrun();`), [[]]);
 });
 
+test('flags two links on one line, but not one link per sentence at the end', () => {
+	const shared = ['const x = 1;', '// Rejects old versions and parses replies: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c https://github.com/beevik/ntp/blob/953b636/ntp4.go', 'run();'].join('\n');
+	assert.deepEqual(rules(shared), [['link_count']]);
+	const each = ['const x = 1;', '// Rejects old NTP versions, as systemd-timesyncd does: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', '// Parsing stays in beevik, which lacks these checks: https://github.com/beevik/ntp/blob/953b636/ntp4.go', 'run();'].join('\n');
+	assert.deepEqual(rules(each), [[]]);
+});
+
 test('flags a colon touching a link', () => {
 	assert.deepEqual(rules('run();\n// Checks are missing from beevik v1.6.0:https://github.com/beevik/ntp\nrun();'), [['link_space']]);
 	assert.deepEqual(rules('run();\n// Checks are missing from beevik v1.6.0: https://github.com/beevik/ntp\nrun();'), [[]]);

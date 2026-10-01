@@ -2,7 +2,7 @@
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
 export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space'; detail: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space' | 'link_count'; detail: string };
 
 const maxInlineLines = 3;
 const minLineRatio = 0.85;
@@ -116,6 +116,11 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const firstLink = lines.findIndex(line => hasLink.test(line));
 	if (firstLink >= 0 && lines.slice(firstLink).some(line => !hasLink.test(line))) {
 		issues.push({ rule: 'link_last', detail: 'Link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment. Never move the summary line.' });
+	}
+
+	// Two links on one line read as sources for one sentence, even when each backs different one.
+	if (lines.some(line => (line.match(/https?:\/\//g) ?? []).length > 1)) {
+		issues.push({ rule: 'link_count', detail: 'Two links share one line. End each sentence a link supports with its own link, on the last lines.' });
 	}
 
 	// Colon glued to link reads as part of the address, and some viewers then fail to open it.
