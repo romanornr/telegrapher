@@ -204,7 +204,8 @@ Code checks run locally, free, with no account or key:
 - `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
-- `link_line`: a link sits on its own line. End the sentence it supports with a colon, then the link.
+- `link_last`: a link sits before more text. Links end the comment, so put the sentence a link supports last.
+- `link_line`: a link has its own line under three or more lines of text. End the last line with a colon, then the link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
 See [Set up a Jev key](#set-up-a-jev-key).

@@ -94,9 +94,9 @@ function sendPage(response: ServerResponse, status: number, text: string): void 
 }
 
 // startCallbackServer waits for OpenRouter's redirect on this computer only, at free port.
-// Desktop sign-in standard recommends this setup in RFC 8252 section 7.3: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
 // OpenRouter adds no check value to its redirect, so secret random path blocks stray requests.
 // It swaps code for key before answering browser, so its page can show failures too.
+// Listening locally at free port follows desktop sign-in standard RFC 8252 section 7.3: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
 export async function startCallbackServer(complete: (code: string) => Promise<string>, signal: AbortSignal): Promise<CallbackServer> {
 	if (signal.aborted) throw new Error('Login cancelled');
 	const path = `/callback/${randomUUID()}`;

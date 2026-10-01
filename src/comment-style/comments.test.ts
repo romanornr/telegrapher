@@ -33,18 +33,27 @@ test('flags a sentence wrapped onto the next line, and uneven lines', () => {
 test('leaves lines that carry a link out of line balance', () => {
 	const source = [
 		'const x = 1;',
-		'// Report refusals and rate limits as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4/src.rs#L715',
 		'// Several reasons may appear together, and none is presented as sole cause.',
+		'// Report refusals and rate limits as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4/src.rs#L715',
 		'run();',
 	].join('\n');
 
 	assert.deepEqual(rules(source), [[]]);
 });
 
-test('flags a link on its own line, but not a comment that is only a link', () => {
-	const own = ['const x = 1;', '// Waits for callback, as Go context example does:', '// https://github.com/golang/go/blob/go1.27.0/src/context/example_test.go', 'run();'].join('\n');
-	assert.deepEqual(rules(own), [['link_line']]);
+test('allows a link on its own line only under one or two lines of text', () => {
+	const short = ['const x = 1;', '// Waits for callback, as Go context example does:', '// https://github.com/golang/go/blob/go1.27.0/src/context/example_test.go', 'run();'].join('\n');
+	assert.deepEqual(rules(short), [[]]);
+	const long = ['const x = 1;', '// Closing socket on cancel unblocks pending read of NTP library.', '// Library could overwrite deadline set here after dialer returns.', '// Closing via callback follows Go context example for connections.', '// https://github.com/golang/go/blob/go1.27.0/src/context/example_test.go', 'run();'].join('\n');
+	assert.deepEqual(rules(long), [['link_line']]);
 	assert.deepEqual(rules('run();\n// https://example.com/spec\nrun();'), [[]]);
+});
+
+test('flags a link followed by more text, but not a tail of source lines', () => {
+	const middle = ['const x = 1;', '// Separating results from alarms follows sfptpd: https://github.com/Xilinx-CNS/sfptpd/blob/5ac5b58/src/sfptpd_engine.c#L2032', '// Previous clock error stays open across unknown results, which never count as recovery.', 'run();'].join('\n');
+	assert.deepEqual(rules(middle), [['link_last']]);
+	const tail = ['const x = 1;', '// Login flow is adapted from pi: https://github.com/earendil-works/pi/blob/8ce69e9/openrouter.ts', '// Callback server is adapted from pi too: https://github.com/earendil-works/pi/blob/8ce69e9/callback-server.ts', 'run();'].join('\n');
+	assert.deepEqual(rules(tail), [[]]);
 });
 
 test('flags semicolons outside code spans, doc paths and ADR numbers', () => {

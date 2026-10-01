@@ -2,11 +2,12 @@
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
 export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line'; detail: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last'; detail: string };
 
 const maxInlineLines = 4;
 const minLineRatio = 0.85;
 const urlOnly = /^https?:\/\/\S+$/;
+const hasLink = /https?:\/\/\S+/;
 
 // Name of a Go function, method, type, constant or variable declared on this line. Groups have no single name.
 const goDeclaration = /^(?:func (?:\([^)]*\) )?|type |const |var )([\p{L}_][\p{L}\p{N}_]*)/u;
@@ -110,9 +111,16 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const docPath = prose.join('\n').match(/(?<![\w/])(?:docs|\.scratch)\/[\w./-]*[\w/-]|\bADR[ -]?\d{2,4}\b/);
 	if (docPath) issues.push({ rule: 'doc_path', detail: `Points to ${docPath[0]}. State the reason in the comment instead.` });
 
-	// Link belongs at end of sentence it supports, so reader sees source and reason together.
-	if (prose.length > 0 && block.text.some(line => urlOnly.test(line.trim()))) {
-		issues.push({ rule: 'link_line', detail: 'Link sits on its own line. End the sentence it supports with a colon, then the link.' });
+	// Links end comment, because link in middle stretches its line far past the others.
+	const lines = block.text.map(line => line.trim()).filter(line => line !== '');
+	const firstLink = lines.findIndex(line => hasLink.test(line));
+	if (firstLink >= 0 && lines.slice(firstLink).some(line => !hasLink.test(line))) {
+		issues.push({ rule: 'link_last', detail: 'Link sits before more text. Put the sentence it supports last, so the link ends the comment.' });
+	}
+
+	// Link gets its own line only under one or two lines of text, so it never trails a longer comment.
+	if (prose.length > 2 && lines.some(line => urlOnly.test(line))) {
+		issues.push({ rule: 'link_line', detail: 'Link sits on its own line under three or more lines of text. End the last line with a colon, then the link.' });
 	}
 
 	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count.` });
@@ -129,7 +137,7 @@ export function codeIssues(block: CommentBlock): Issue[] {
 
 	if (prose.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
 		// Line ending in link only introduces its source, so it does not count toward balance.
-		const lengths = prose.filter(line => !/https?:\/\/\S+/.test(line)).map(line => line.length);
+		const lengths = prose.filter(line => !hasLink.test(line)).map(line => line.length);
 		if (lengths.length >= 2 && Math.min(...lengths) < minLineRatio * Math.max(...lengths)) issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} differ by more than ${Math.round((1 - minLineRatio) * 100)}%. Rebalance the sentences.` });
 	}
 
