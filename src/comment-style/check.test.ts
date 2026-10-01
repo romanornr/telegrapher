@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { preview, readCommentStyle, runCommentStyle, type CommentStyleRequest } from './check.ts';
 import { codeIssues, findComments } from './comments.ts';
@@ -6,7 +10,7 @@ import { jev } from '../request.ts';
 
 test('reports code issues and Jev answers above the threshold, one request per comment', async () => {
 	const blocks = findComments('example.ts', 'run();\n// Flags, not counts; several can apply.\nrun();\n// Keeps the retry budget per host.\nrun();');
-	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: 'Package example explains shared terms.' })) };
+	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: 'Package example explains shared terms.', previous: null })) };
 	const states: unknown[] = [];
 
 	const report = await runCommentStyle(request, jev('sk-or-test-key', async (_url, init) => {
@@ -33,7 +37,7 @@ test('does not ask whether a Go doc comment on an exported name restates the cod
 	const source = 'package mql\n\n// Kind returns "match".\nfunc (Matched) Kind() string { return "match" }\n\n// Keeps each lookup short.\nfunc lookup() {}\n';
 	const blocks = findComments('evaluate.go', source);
 	assert.deepEqual(blocks.map(block => block.goName), ['Kind', 'lookup']);
-	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '' })) };
+	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '', previous: null })) };
 	const asked: string[][] = [];
 
 	await runCommentStyle(request, jev('sk-or-test-key', async (_url, init) => {
@@ -50,7 +54,7 @@ test('does not ask whether a Go doc comment on an exported name restates the cod
 
 test('without Jev, code checks still run and nothing is sent', async () => {
 	const blocks = findComments('example.ts', 'run();\n// Flags, not counts; several can apply.\nrun();');
-	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '' })) };
+	const request: CommentStyleRequest = { pack: 'comment-style/test', comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: '', previous: null })) };
 	const report = await runCommentStyle(request, undefined);
 
 	assert.equal(report.summary, 'comment-style: 1 of 1 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal)');
@@ -70,4 +74,34 @@ test('checks a draft comment as if it sat inside code of the named file', () => 
 	assert.equal(comment?.line, 1);
 	assert.equal(comment?.goName, 'ntpReplyChecks');
 	assert.deepEqual(comment?.issues.map(issue => issue.rule), ['uneven_lines']);
+});
+
+test('pairs a draft with the committed comment above the same code line, and asks Jev about lost meaning', async () => {
+	const repo = mkdtempSync(join(tmpdir(), 'telegrapher-'));
+	const run = (args: string[]) => execFileSync('git', args, { cwd: repo });
+	run(['init', '-q']);
+	writeFileSync(join(repo, 'x.go'), 'package x\n\nfunc a() {}\n\n// waits on the socket, as Go does: https://go.dev/x\nfunc b() {}\n');
+	run(['add', '.']);
+	run(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x']);
+
+	const directory = process.cwd();
+	process.chdir(repo);
+	try {
+		const request = readCommentStyle({ files: ['x.go'], draft: '// waits on the socket.\n// then closes it.\nfunc b() {}' });
+		const [comment] = request.comments;
+		assert.deepEqual(comment?.previous, ['waits on the socket, as Go does: https://go.dev/x']);
+		assert.deepEqual(comment?.issues.map(issue => issue.rule).filter(rule => ['link_dropped', 'grew'].includes(rule)), ['link_dropped', 'grew']);
+
+		const asked: { questions: string[]; previous: unknown }[] = [];
+		await runCommentStyle(request, jev('sk-test', async (_, init) => {
+			const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown>; state: Record<string, unknown> };
+			asked.push({ questions: Object.keys(body.questions), previous: body.state.previous_comment });
+
+			return Response.json({ model: 'jev', answers: Object.fromEntries(Object.keys(body.questions).map(name => [name, { type: 'noul', noul: 0.1 }])), usage: { input_tokens: 1, output_tokens: 1 } });
+		}));
+		assert.equal(asked[0]?.questions.includes('meaning_lost'), true);
+		assert.equal(asked[0]?.previous, 'waits on the socket, as Go does: https://go.dev/x');
+	} finally {
+		process.chdir(directory);
+	}
 });

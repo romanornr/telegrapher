@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { NoulQuestion } from '@typesafe-ai/sdk';
-import { changedLines, codeIssues, findComments, type CommentBlock, type Issue } from './comments.ts';
+import { changedLines, codeIssues, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
 import { checkRange, git } from '../git.ts';
-import { costOf, judgeOnly, type Ask, type Report } from '../request.ts';
+import { costOf, judgeOnly, type Ask, type Report, type State } from '../request.ts';
 
 // Bump the version whenever a question changes, so saved runs stay comparable.
 const pack = 'comment-style/2';
@@ -20,7 +20,7 @@ function question(instructions: string): NoulQuestion & { instructions: string }
 	return { type: 'noul', instructions: `${instructions}${judgeOnly}` };
 }
 
-const questionNames = ['jargon', 'restates_code', 'status', 'unexplained_source'] as const;
+const questionNames = ['jargon', 'restates_code', 'status', 'unexplained_source', 'meaning_lost'] as const;
 
 // labels are short texts for terminal output, while saved run keeps full questions.
 // Source and confidence sit beside rule name, so readers never take "Jev" for flagged word.
@@ -29,6 +29,7 @@ const labels: Record<(typeof questionNames)[number], string> = {
 	restates_code: 'only repeats what the code does',
 	status: 'describes status or progress, not a lasting fact',
 	unexplained_source: 'cites a source without saying what idea it takes',
+	meaning_lost: 'drops or changes a fact the committed comment stated',
 };
 
 // Each asks whether a rule is broken, so a high probability of yes is a flag.
@@ -37,9 +38,10 @@ export const questions: Record<(typeof questionNames)[number], NoulQuestion & { 
 	restates_code: question('Does `state.comment` only describe what `state.code_after` visibly does, adding no reason, constraint or consequence?'),
 	status: question('Does `state.comment` describe project status or progress, such as planned work, recent changes or rollout state, instead of a fact that stays true?'),
 	unexplained_source: question('Does `state.comment` cite an outside source, such as a link, paper or project, without stating which idea it takes from that source?'),
+	meaning_lost: question('Does `state.comment` drop or change a fact that `state.previous_comment` states? Rewording, reordering, shortening and dropping filler words do not count, only lost or altered meaning.'),
 };
 
-export type CheckedComment = CommentBlock & { issues: Issue[]; packageDoc: string };
+export type CheckedComment = CommentBlock & { issues: Issue[]; packageDoc: string; previous: string[] | null };
 export type CommentStyleRequest = { pack: string; comments: CheckedComment[] };
 
 // Whole files check every comment, and otherwise only comments touching changed lines, staged by default.
@@ -81,7 +83,37 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 		return docs.get(directory) ?? '';
 	};
 
-	return { pack, comments: blocks.map(block => ({ ...block, issues: codeIssues(block), packageDoc: packageDoc(block.path) })) };
+	// Committed version of each file, where rewrites are compared: diff start, or HEAD for files, drafts and staged changes.
+	const baseRevision = options.draft === undefined && options.files.length === 0 && options.diff !== undefined ? checkRange(options.diff).split('..')[0] : 'HEAD';
+	const bases = new Map<string, CommentBlock[]>();
+	const previousOf = (block: CommentBlock): string[] | null => {
+		if (!bases.has(block.path)) {
+			let content = '';
+			try {
+				content = git(['show', `${baseRevision}:${block.path}`]);
+			} catch {
+				// New or untracked file, so no comment has an earlier version.
+			}
+			bases.set(block.path, content === '' ? [] : findComments(block.path, content));
+		}
+
+		// Pairs comment with committed one above same code line, nearest first, since rewrites leave code alone.
+		const candidates = (bases.get(block.path) ?? []).filter(old => old.codeLine === block.codeLine);
+		candidates.sort((a, b) => Math.abs(a.line - block.line) - Math.abs(b.line - block.line));
+
+		return candidates[0]?.text ?? null;
+	};
+
+	return {
+		pack,
+		comments: blocks.map(block => {
+			const previous = previousOf(block);
+			const changed = previous !== null && previous.join('\n') !== block.text.join('\n');
+			const issues = [...codeIssues(block), ...(changed ? rewriteIssues(block.text, previous) : [])];
+
+			return { ...block, issues, packageDoc: packageDoc(block.path), previous: changed ? previous : null };
+		}),
+	};
 }
 
 // Without ask, only code checks run, and nothing is sent.
@@ -95,9 +127,12 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 		answered.push(...await Promise.all(batch.map(async comment => {
 			if (ask === undefined) return { ...comment, result: null, flags: [] };
 
-			// Go requires a doc comment on each exported name, and saying what the name does is its job.
-			const names = comment.goName !== null && /^\p{Lu}/u.test(comment.goName) ? questionNames.filter(name => name !== 'restates_code') : questionNames;
-			const result = await ask({ file: comment.path, comment: comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc },
+			// Go requires doc comment on each exported name, and saying what name does is its job.
+			// meaning_lost needs earlier version, so it is asked only about rewritten comments.
+			const names = questionNames.filter(name => !(name === 'restates_code' && comment.goName !== null && /^\p{Lu}/u.test(comment.goName)) && (name !== 'meaning_lost' || comment.previous !== null));
+			const state: State = { file: comment.path, comment: comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc };
+			if (comment.previous !== null) state.previous_comment = comment.previous.join('\n');
+			const result = await ask(state,
 				Object.fromEntries(names.map(name => [name, questions[name]])));
 			const answerCost = costOf(result);
 			cost = cost === undefined || answerCost === undefined ? undefined : cost + answerCost;
@@ -122,6 +157,7 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 		summary: `comment-style: ${findings.length} of ${request.comments.length} comments need a look `
 			+ (ask === undefined ? '(code checks only, for Jev questions the user runs telegrapher auth in their own terminal)' : cost === undefined ? '(with Jev)' : `($${cost.toFixed(6)})`),
 		findings,
+		next: findings.length === 0 ? undefined : 'Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing until nothing is flagged.',
 		record: { pack: request.pack, comments: answered },
 	};
 }

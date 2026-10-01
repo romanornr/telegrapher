@@ -199,6 +199,7 @@ async function main(): Promise<number> {
 			console.log(report.summary);
 
 			for (const finding of report.findings) console.log(`\n${finding}`);
+			if (report.next) console.log(`\n${report.next}`);
 		}
 
 		return 0;

@@ -23,7 +23,7 @@ export type State = Record<string, JsonValue>;
 export type Ask = <const Q extends Questions>(state: State, questions: Q) => Promise<SystemOneResult<Q>>;
 
 // A check's outcome: one summary line, one entry per finding, and the full record saved locally.
-export type Report = { summary: string; findings: string[]; record: unknown };
+export type Report = { summary: string; findings: string[]; next?: string; record: unknown };
 
 export function jev(apiKey: string, fetch?: Fetch): Ask {
 	const client = new TypeSafeClient({ apiKey, baseURL: providers[providerOf(apiKey)].baseURL, fetch, logLevel: 'off', timeout: 30_000 });

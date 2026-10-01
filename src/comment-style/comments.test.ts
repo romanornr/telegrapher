@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { changedLines, codeIssues, findComments } from './comments.ts';
+import { changedLines, codeIssues, findComments, rewriteIssues } from './comments.ts';
 
 function rules(source: string): string[][] {
 	return findComments('example.ts', source).map(block => codeIssues(block).map(issue => issue.rule));
@@ -150,4 +150,13 @@ test('Go comments start with the name declared below them', () => {
 test('doc_path leaves out the period that ends the sentence', () => {
 	const [block] = findComments('x.ts', 'run();\n// Retries are explained in docs/retries.md.\nrun();');
 	assert.equal(block === undefined ? '' : codeIssues(block).find(issue => issue.rule === 'doc_path')?.detail, 'Points to docs/retries.md. State the reason in the comment instead.');
+});
+
+test('compares a rewrite with its committed version for added or dropped links and extra lines', () => {
+	const before = ['Rate limits stay separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715'];
+	const rule = (text: string[]) => rewriteIssues(text, before).map(issue => issue.rule);
+
+	assert.deepEqual(rule(['Rate limits and refusals stay separate, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715.']), []);
+	assert.deepEqual(rule(['Rate limits stay separate reasons.']), ['link_dropped']);
+	assert.deepEqual(rule(['Rate limits stay separate, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'See RFC 8633: https://www.rfc-editor.org/rfc/rfc8633']), ['link_added', 'grew']);
 });

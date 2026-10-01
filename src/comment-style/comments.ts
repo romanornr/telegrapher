@@ -1,8 +1,8 @@
 // Finds comments in TypeScript and Go source, and checks style rules plain code can measure.
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
-export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space' | 'link_count' | 'too_wide'; detail: string };
+export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string; codeLine: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space' | 'link_count' | 'too_wide' | 'link_added' | 'link_dropped' | 'grew'; detail: string };
 
 const maxInlineLines = 3;
 const maxLineWidth = 120;
@@ -63,7 +63,7 @@ export function findComments(path: string, content: string): CommentBlock[] {
 
 		const codeAfter = lines.slice(i).filter(line => line.trim() !== '').slice(0, 12).join('\n');
 		const goName = path.endsWith('.go') ? goDeclaration.exec(lines[i] ?? '')?.[1] ?? null : null;
-		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, codeAfter });
+		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, codeAfter, codeLine: (lines[i] ?? '').trim() });
 	}
 
 	return blocks;
@@ -192,4 +192,24 @@ export function changedLines(diff: string): Map<string, Set<number>> {
 	}
 
 	return changed;
+}
+
+// linksIn lists links without trailing punctuation, so sentence's final period never makes link look new.
+function linksIn(text: string[]): Set<string> {
+	return new Set((text.join(' ').match(hasLinks) ?? []).map(link => link.replace(/[.,;:)]+$/, '')));
+}
+
+// rewriteIssues compares comment with its committed version, so rewrite keeps its links and never grows.
+export function rewriteIssues(text: string[], previous: string[]): Issue[] {
+	const issues: Issue[] = [];
+	const now = linksIn(text);
+	const before = linksIn(previous);
+
+	if ([...now].some(link => !before.has(link))) issues.push({ rule: 'link_added', detail: 'Rewrite adds a link the previous comment did not have. Keep only its links.' });
+	if ([...before].some(link => !now.has(link))) issues.push({ rule: 'link_dropped', detail: 'Rewrite drops a link the previous comment had. Keep every link, at the end of the sentence it supports.' });
+
+	const lines = (lines: string[]) => lines.filter(line => line.trim() !== '').length;
+	if (lines(text) > lines(previous)) issues.push({ rule: 'grew', detail: `Rewrite has ${lines(text)} lines, previous comment had ${lines(previous)}. Never add lines.` });
+
+	return issues;
 }

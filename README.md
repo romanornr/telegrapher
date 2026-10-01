@@ -208,6 +208,12 @@ Code checks run locally, free, with no account or key:
 - `link_last`: a link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment, and never move the summary line.
 - `link_space`: a colon touches a link. Put a space between them.
 - `link_count`: two links share one line. End each sentence a link supports with its own link, on the last lines.
+
+Rewrites are compared with the committed comment above the same code line: `HEAD` for files, drafts and staged changes, or the start of `--diff`.
+
+- `link_added`: a rewrite adds a link the committed comment did not have.
+- `link_dropped`: a rewrite drops a link the committed comment had.
+- `grew`: a rewrite has more lines than the committed comment.
 - `link_line`: a link has its own line under three or more lines of text. End the last line with a colon, then the link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
@@ -222,6 +228,7 @@ Only the comments, files and diff you pass are sent, so never pass secrets or pr
 - `restates_code`: only repeats what the code does.
 - `status`: describes rollout progress instead of a lasting fact.
 - `unexplained_source`: cites a source without saying which idea it takes.
+- `meaning_lost`: a rewrite drops or changes a fact the committed comment stated. Asked only about rewritten comments.
 
 ## More examples
 
