@@ -114,9 +114,8 @@ async function signIn(mode: LoginMode, openBrowser: boolean, interrupt: AbortCon
 }
 
 // auth never prints key, so it cannot leak into terminal logs or agent transcripts.
-// Plain auth refuses without terminal, so key is never typed through agent or script.
+// Plain auth needs terminal and --stdin needs pipe, so no key is typed where agent sees it.
 // --browser works without terminal, since key goes from OpenRouter straight to file.
-// --stdin refuses terminal input, so key comes from pipe and is never typed visibly.
 async function auth(): Promise<number> {
 	const terminal = Boolean(process.stdin.isTTY);
 	const interrupt = new AbortController();

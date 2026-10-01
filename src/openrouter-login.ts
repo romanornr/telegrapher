@@ -2,8 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type ServerResponse } from 'node:http';
 
 // Browser sign-in with OpenRouter's PKCE flow (RFC 7636) returns ordinary sk-or- key, never refresh token.
-// Login flow is adapted from pi's OpenRouter module: https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/openrouter.ts
-// Callback server is adapted from pi's shared one, merged into this module: https://github.com/earendil-works/pi/blob/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth/callback-server.ts
+// Login flow and callback server are adapted from pi, merged into one module: https://github.com/earendil-works/pi/tree/8ce69e9d2b171d173fe4b6b2b6256f1f4411e69d/packages/ai/src/auth/oauth
 // Sign-in steps and headless mode follow OpenRouter's guide for command-line apps: https://openrouter.ai/docs/guides/overview/auth/oauth
 
 const authorizeURL = 'https://openrouter.ai/auth';
@@ -93,10 +92,9 @@ function sendPage(response: ServerResponse, status: number, text: string): void 
 	response.end(`${text}\n`);
 }
 
-// startCallbackServer waits for OpenRouter's redirect on this computer only, at free port.
+// startCallbackServer swaps code for key before answering browser, so its page can show failures too.
 // OpenRouter adds no check value to its redirect, so secret random path blocks stray requests.
-// It swaps code for key before answering browser, so its page can show failures too.
-// Listening locally at free port follows desktop sign-in standard RFC 8252 section 7.3: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
+// It listens on this computer only, at free port, as RFC 8252 section 7.3 advises: https://www.rfc-editor.org/rfc/rfc8252#section-7.3
 export async function startCallbackServer(complete: (code: string) => Promise<string>, signal: AbortSignal): Promise<CallbackServer> {
 	if (signal.aborted) throw new Error('Login cancelled');
 	const path = `/callback/${randomUUID()}`;

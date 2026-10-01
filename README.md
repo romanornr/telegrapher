@@ -49,7 +49,7 @@ client.go:11  Retry the request a few times; the server can still be starting up
   two_sentences: Two sentences share one line. Give each its own line.
   name_first: Start with fetchWithRetry, the name this comment documents.
   doc_path: Points to docs/retries.md. State the reason in the comment instead.
-  too_long: 6 lines of text inside code, above 4. Links do not count.
+  too_long: 6 lines of text inside code, above 3. Links do not count.
   not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
   uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 differ by more than 15%. Rebalance the sentences.
   jargon (Jev 81%): uses jargon where plain words would do. Jev does not say which word, and established technical terms are fine
@@ -73,8 +73,7 @@ var baseDelay = 100 * time.Millisecond
 
 // fetchWithRetry retries request up to maxTries times, since server may be starting.
 // Wait between tries doubles each time, so busy server gets enough room to recover.
-// Random extra wait, called jitter, keeps many clients from retrying together.
-// https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+// Random extra wait, called jitter, keeps many clients from retrying together: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 func fetchWithRetry(url string) error {
 ```
 
@@ -200,11 +199,12 @@ Code checks run locally, free, with no account or key:
 - `two_sentences`: two sentences share one line.
 - `semicolon`: a semicolon joins two sentences.
 - `uneven_lines`: line lengths differ by more than 15%.
-- `too_long`: more than 4 lines of text inside code.
+- `too_long`: more than 3 lines of text inside code. Links do not count.
 - `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
-- `link_last`: a link sits before more text. Links end the comment, so put the sentence a link supports last.
+- `link_last`: a link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment, and never move the summary line.
+- `link_space`: a colon touches a link. Put a space between them.
 - `link_line`: a link has its own line under three or more lines of text. End the last line with a colon, then the link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
@@ -244,7 +244,7 @@ Only the comments, files and diff you pass are sent, so never pass secrets or pr
  func (b expressionBuilder) logic(op string, left, right ast.Expr) ast.Expr {
 ```
 
-### One sentence over three lines becomes four short, even ones
+### One sentence over three lines becomes three even ones, link last
 
 ```diff
  
@@ -252,11 +252,10 @@ Only the comments, files and diff you pass are sent, so never pass secrets or pr
 -// MQL null logic differs from CEL null, so each operation is built from CEL's
 -// own lazy conditionals rather than custom functions, which receive every
 -// argument already evaluated. A false left operand of "and" therefore skips the right.
-+// MQL truth values are stored as integers: 0 false, 1 true and 2 null.
-+// MQL null logic differs from CEL's, so operations use CEL's lazy if-then-else.
-+// Custom functions get every argument already evaluated, so cannot skip one.
-+// False left side of "and" thus skips right side entirely, as MQL requires.
- // https://docs.sublime.security/docs/null-handling
+-// https://docs.sublime.security/docs/null-handling
++// MQL truth values are integers 0 false, 1 true and 2 null, and its null logic differs from CEL's.
++// Custom functions get every argument already evaluated, so operations use CEL's lazy if-then-else.
++// That lets false left side of "and" skip right side, as MQL requires: https://docs.sublime.security/docs/null-handling
 ```
 
 ### Articles and filler drop, meaning stays
@@ -301,11 +300,10 @@ Every comment-only change in the engine, original against final, as `git diff` s
 -// MQL null logic differs from CEL null, so each operation is built from CEL's
 -// own lazy conditionals rather than custom functions, which receive every
 -// argument already evaluated. A false left operand of "and" therefore skips the right.
-+// MQL truth values are stored as integers: 0 false, 1 true and 2 null.
-+// MQL null logic differs from CEL's, so operations use CEL's lazy if-then-else.
-+// Custom functions get every argument already evaluated, so cannot skip one.
-+// False left side of "and" thus skips right side entirely, as MQL requires.
- // https://docs.sublime.security/docs/null-handling
+-// https://docs.sublime.security/docs/null-handling
++// MQL truth values are integers 0 false, 1 true and 2 null, and its null logic differs from CEL's.
++// Custom functions get every argument already evaluated, so operations use CEL's lazy if-then-else.
++// That lets false left side of "and" skip right side, as MQL requires: https://docs.sublime.security/docs/null-handling
 ```
 
 #### `mql/cel_functions.go`

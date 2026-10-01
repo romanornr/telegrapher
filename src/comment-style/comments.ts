@@ -2,9 +2,9 @@
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
 export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last'; detail: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space'; detail: string };
 
-const maxInlineLines = 4;
+const maxInlineLines = 3;
 const minLineRatio = 0.85;
 const urlOnly = /^https?:\/\/\S+$/;
 const hasLink = /https?:\/\/\S+/;
@@ -115,8 +115,11 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const lines = block.text.map(line => line.trim()).filter(line => line !== '');
 	const firstLink = lines.findIndex(line => hasLink.test(line));
 	if (firstLink >= 0 && lines.slice(firstLink).some(line => !hasLink.test(line))) {
-		issues.push({ rule: 'link_last', detail: 'Link sits before more text. Put the sentence it supports last, so the link ends the comment.' });
+		issues.push({ rule: 'link_last', detail: 'Link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment. Never move the summary line.' });
 	}
+
+	// Colon glued to link reads as part of the address, and some viewers then fail to open it.
+	if (lines.some(line => /:https?:\/\//.test(line))) issues.push({ rule: 'link_space', detail: 'Colon touches the link. Put a space between them.' });
 
 	// Link gets its own line only under one or two lines of text, so it never trails a longer comment.
 	if (prose.length > 2 && lines.some(line => urlOnly.test(line))) {

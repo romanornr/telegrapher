@@ -63,12 +63,19 @@ test('flags semicolons outside code spans, doc paths and ADR numbers', () => {
 	assert.deepEqual(rules('run();\n// ADR 0013 explains this.\nrun();'), [['doc_path']]);
 });
 
-test('limits comments inside code to four lines of text, but not overviews or doc comments', () => {
-	const five = ['// One line of text here.', '// Two lines of text here.', '// Tri lines of text here.', '// Four line of text here.', '// Five line of text here.'].join('\n');
+test('limits comments inside code to three lines of text, but not overviews or doc comments', () => {
+	const three = ['// One line of text here.', '// Two lines of text here.', '// Tri lines of text here.'].join('\n');
+	const four = [three, '// Four line of text here.'].join('\n');
 
-	assert.deepEqual(rules(`run();\n${five}\nrun();`), [['too_long']]);
-	assert.deepEqual(rules(`${five}\nrun();`), [[]]);
-	assert.deepEqual(rules(`run();\n/**\n${five.replaceAll('//', ' *')}\n */\nrun();`), [[]]);
+	assert.deepEqual(rules(`run();\n${three}\nrun();`), [[]]);
+	assert.deepEqual(rules(`run();\n${four}\nrun();`), [['too_long']]);
+	assert.deepEqual(rules(`${four}\nrun();`), [[]]);
+	assert.deepEqual(rules(`run();\n/**\n${four.replaceAll('//', ' *')}\n */\nrun();`), [[]]);
+});
+
+test('flags a colon touching a link', () => {
+	assert.deepEqual(rules('run();\n// Checks are missing from beevik v1.6.0:https://github.com/beevik/ntp\nrun();'), [['link_space']]);
+	assert.deepEqual(rules('run();\n// Checks are missing from beevik v1.6.0: https://github.com/beevik/ntp\nrun();'), [[]]);
 });
 
 test('marks comments before code as overviews, allowing a Go package clause', () => {
