@@ -234,3 +234,21 @@ test('an unchanged comment above changed code is kept, not deleted', () => {
 
 	assert.deepEqual(comments.filter(comment => comment.deleted), []);
 });
+
+test('third review: edge blanks, moved-link destinations, distant text and rewrapped code', () => {
+	const one = { 'd.go': 'package engine\n\n// Data type descriptors\nconst (\n\ta = 1\n)\n\nfunc s() {\n\tswitch {\n\t}\n}\n' };
+	const blanks = { 'd.go': 'package engine\n\n//\n// Data type descriptors\n//\nconst (\n\ta = 1\n)\n\nfunc s() {\n\tswitch {\n\t}\n}\n' };
+	assert.deepEqual(inRepo([one, blanks], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.flatMap(comment => comment.issues.map(issue => issue.rule))), ['grew']);
+
+	const distant = { 'd.go': 'package engine\n\nconst (\n\ta = 1\n)\n\nfunc s() {\n\t// Data type descriptors\n\tswitch {\n\t}\n}\n' };
+	assert.deepEqual(inRepo([one, distant], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.filter(comment => comment.deleted).map(comment => comment.text[0])), ['Data type descriptors']);
+
+	const link = 'https://github.com/syncthing/syncthing/blob/94c3c1c/lib/config/optionsconfiguration.go#L210';
+	const sourced = { 'p.go': `package engine\n\nfunc run() {\n\t// Runtime expansion never changes saved config, as Syncthing does: ${link}\n\tpools = defaults\n}\n` };
+	const tacked = { 'p.go': `package engine\n\nfunc run() {\n\t// Runtime expansion never changes saved config.\n\tpools = defaults\n}\n\nvar counter = 0 // ${link}\n` };
+	assert.deepEqual(inRepo([sourced, tacked], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.flatMap(comment => comment.issues.map(issue => issue.rule))), ['link_dropped']);
+
+	const flat = { 'w.ts': '// Keeps callback server local, as RFC 8252 advises: https://www.rfc-editor.org/rfc/rfc8252\nexport async function start(complete: () => void, signal: AbortSignal): Promise<void> {}\n' };
+	const wrapped = { 'w.ts': '// Keeps callback server local.\nexport async function start(\n\tcomplete: () => void,\n\tsignal: AbortSignal,\n): Promise<void> {}\n' };
+	assert.deepEqual(inRepo([flat, wrapped], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }).comments.flatMap(comment => comment.issues.map(issue => issue.rule))), ['link_dropped']);
+});

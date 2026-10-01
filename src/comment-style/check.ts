@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NoulQuestion } from '@typesafe-ai/sdk';
-import { bareLinks, changedLines, codeIssues, codeKey, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
+import { bareLinks, changedLines, removedLines, codeIssues, codeKey, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
 import { checkRange, git } from '../git.ts';
 import { costOf, judgeOnly, type Ask, type Report, type State } from '../request.ts';
 
@@ -47,30 +47,38 @@ export const questions: Record<(typeof questionNames)[number], NoulQuestion & { 
 export type CheckedComment = CommentBlock & { issues: Issue[]; packageDoc: string; previous: string[] | null; deleted?: true };
 export type CommentStyleRequest = { pack: string; comments: CheckedComment[]; notes?: string[] };
 
-// startsWith reports whether code lines begin with given lines.
-function startsWith(code: string[], start: string[]): boolean {
-	return start.length > 0 && start.every((line, index) => line === code[index]);
+// flat joins code lines without line breaks or trailing commas formatters add on rewrap: rewrapped code pairs too.
+function flat(lines: string[]): string {
+	return lines.join('').replace(/,(?=[)\]}])/g, '');
+}
+
+function startsWith(code: string, start: string): boolean {
+	return start !== '' && code.startsWith(start);
 }
 
 // codeKeys lists code below each code line of file, letting code under comment be found again.
-function codeKeys(content: string): { line: number; key: string[] }[] {
-	const lines = content.split('\n');
+function codeKeys(content: string): { line: number; key: string }[] {
+	const code = content.split('\n').flatMap((line, index) => codeKey([line]).map(text => ({ line: index + 1, text })));
 
-	return lines.flatMap((line, index) => codeKey([line]).length > 0 ? [{ line: index + 1, key: codeKey(lines.slice(index)) }] : []);
+	return code.map((entry, index) => ({ line: entry.line, key: flat(code.slice(index, index + 40).map(next => next.text)) }));
 }
 
 // unique says whether anchor names one place, since identical code may repeat past 40 lines.
-type Committed = CommentBlock & { anchor: string[]; unique: boolean };
+type Committed = CommentBlock & { anchor: string; unique: boolean };
 
-// Anchor is shortest start of code below comment found only once in committed file.
-// Short anchor survives edits further down, such as deleted function, while naming one place.
+// Anchor is shortest start of code below comment found once in committed file, 2 lines or 40 characters at least.
+// Short anchor survives edits further down, such as deleted function, and minimum length keeps generic code apart.
 function committedComments(path: string, content: string): Committed[] {
 	const keys = codeKeys(content).map(entry => entry.key);
 
 	return findComments(path, content).map(block => {
-		const length = block.codeKey.findIndex((_, index) => keys.filter(key => startsWith(key, block.codeKey.slice(0, index + 1))).length <= 1);
+		const length = block.codeKey.findIndex((_, index) => {
+			const start = flat(block.codeKey.slice(0, index + 1));
 
-		return { ...block, anchor: length < 0 ? block.codeKey : block.codeKey.slice(0, length + 1), unique: length >= 0 };
+			return (index >= 1 || start.length >= 40 || index === block.codeKey.length - 1) && keys.filter(key => startsWith(key, start)).length <= 1;
+		});
+
+		return { ...block, anchor: flat(length < 0 ? block.codeKey : block.codeKey.slice(0, length + 1)), unique: length >= 0 };
 	});
 }
 
@@ -109,13 +117,23 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	let target: string | undefined;
 	// Changed files and their new content, where deleted comments are looked for.
 	const changed = new Map<string, string>();
+	// Old lines each changed file removes, since only removed comment may be deleted one.
+	let removed = new Map<string, Set<number>>();
+	// New content of every file checked, where text fallback looks for old code.
+	const sources = new Map<string, string>();
+	// Folder named on command line, as given relative or absolute, counts as named in link checks.
+	const inFolder = (block: CommentBlock): CommentBlock => ({ ...block, folder: basename(dirname(resolve(block.path))) });
 
 	if (options.draft !== undefined) {
 		const path = options.files[0] ?? 'draft.go';
 		const code = path.endsWith('.go') ? 'var _ = 0' : 'void 0;';
-		blocks.push(...findComments(path, `${code}\n${options.draft}`).map(block => ({ ...block, line: block.line - 1, endLine: block.endLine - 1 })));
+		sources.set(path, `${code}\n${options.draft}`);
+		blocks.push(...findComments(path, `${code}\n${options.draft}`).map(block => inFolder({ ...block, line: block.line - 1, endLine: block.endLine - 1 })));
 	} else if (options.files.length > 0) {
-		for (const path of options.files) blocks.push(...findComments(path, readFileSync(path, 'utf8')));
+		for (const path of options.files) {
+			sources.set(path, readFileSync(path, 'utf8'));
+			blocks.push(...findComments(path, sources.get(path) ?? '').map(inFolder));
+		}
 	} else {
 		const range = options.diff === undefined ? undefined : checkRange(options.diff);
 		target = range === undefined ? '' : range.split('..').at(-1);
@@ -123,11 +141,13 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 
 		const diff = git(['diff', '-U0', '--no-color', ...(range === undefined ? ['--cached'] : ['--end-of-options', range]), '--', ...sourceFiles]);
 
+		removed = removedLines(diff);
 		for (const [path, lines] of changedLines(diff)) {
 			if (generated.test(path) || lines.size === 0) continue;
 
 			const content = git(['show', `${target}:${path}`]);
 			changed.set(path, content);
+			sources.set(path, content);
 			blocks.push(...findComments(path, content).filter(block => [...lines].some(line => line >= block.line && line <= block.endLine)));
 		}
 	}
@@ -159,12 +179,17 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	// Pairs comment with committed one above same code, nearest first, since rewrites leave code alone.
 	// Draft may carry fewer code lines than anchor, and its line numbers say nothing about place.
 	// Draft pairs only when one committed comment fits.
-	const candidatesOf = (block: CommentBlock, committed: Committed[]): Committed[] => committed.filter(old => startsWith(block.codeKey, old.anchor) || startsWith(old.anchor, block.codeKey));
+	const candidatesOf = (block: CommentBlock, committed: Committed[]): Committed[] => committed.filter(old => startsWith(flat(block.codeKey), old.anchor) || startsWith(old.anchor, flat(block.codeKey)));
+	const keysIn = new Map<string, string[]>();
+	const currentKeys = (path: string): string[] => keysIn.get(path) ?? keysIn.set(path, codeKeys(sources.get(path) ?? '').map(entry => entry.key)).get(path) ?? [];
+
 	// Each committed comment pairs with one new comment at most: two rewrites never share one original.
 	const pairOf = (block: CommentBlock, committed: Committed[], used: Set<Committed>): Committed | undefined => {
 		// Unchanged comment above changed code pairs by its text.
 		const byCode = candidatesOf(block, committed).filter(old => !used.has(old));
-		const candidates = byCode.length > 0 ? byCode : committed.filter(old => !used.has(old) && old.text.join('\n') === block.text.join('\n'));
+		const gone = (old: Committed) => !currentKeys(block.path).some(key => startsWith(key, old.anchor));
+		// Text alone pairs only once old code is gone, never onto unrelated code elsewhere.
+		const candidates = byCode.length > 0 ? byCode : committed.filter(old => !used.has(old) && gone(old) && old.text.join('\n') === block.text.join('\n'));
 		if (options.draft !== undefined && candidates.length !== 1) return undefined;
 		candidates.sort((a, b) => Math.abs(a.line - block.line) - Math.abs(b.line - block.line));
 		const pair = candidates[0];
@@ -182,7 +207,13 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	} catch {
 		// Outside repository or before first commit, nothing has moved.
 	}
-	const links = new Set(added.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++')).flatMap(line => bareLinks(line)));
+	// Only comment lines and docs count as destination, since link tacked onto code carries no fact.
+	const links = new Set<string>();
+	let inDocs = false;
+	for (const line of added.split('\n')) {
+		if (line.startsWith('+++ ')) inDocs = /\.(?:md|txt|rst|tmpl)$/.test(line);
+		else if (line.startsWith('+') && (inDocs || /^\s*(?:\/\/|\/\*|\*)/.test(line.slice(1)))) for (const link of bareLinks(line)) links.add(link);
+	}
 
 	const notes: string[] = [];
 	// New comments without committed pair, which deleted comment right above same code may have moved into.
@@ -197,7 +228,7 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 				? `Several committed comments sit above code like this in ${block.path}, so rewrite checks were skipped. Pass more code lines below the comment.`
 				: `No committed comment sits above this code in ${block.path}, so it is checked as new comment.`);
 		}
-		const rewritten = previous !== undefined && previous.join('\n') !== block.text.join('\n');
+		const rewritten = previous !== undefined && (previous.join('\n') !== block.text.join('\n') || block.size !== pair?.size);
 		const issues = [...codeIssues(block), ...(rewritten ? rewriteIssues(block.text, previous, links, { now: block.size, before: pair?.size ?? previous.length }) : [])];
 
 		return { ...block, issues, packageDoc: packageDoc(block.path), previous: rewritten ? previous : null };
@@ -212,9 +243,14 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 		const keys = codeKeys(content);
 
 		// Repeated code leaves no single place to compare, and deletion there stays unreported rather than guessed.
+		const cut = removed.get(path) ?? new Set();
 		for (const old of committed) {
 			if (kept.has(old) || !old.unique) continue;
-			const at = keys.find(entry => startsWith(entry.key, old.anchor));
+			// Comment diff leaves in place was not deleted, whatever pairing guessed.
+			if (!Array.from({ length: old.endLine - old.line + 1 }, (_, offset) => old.line + offset).every(line => cut.has(line))) continue;
+			// Code found twice in new file names no single place either.
+			const found = keys.filter(entry => startsWith(entry.key, old.anchor));
+			const at = found.length === 1 ? found[0] : undefined;
 			if (at === undefined) continue;
 
 			// Comment moved up to few lines above its old code, as above enclosing if, is rewrite, not deletion.

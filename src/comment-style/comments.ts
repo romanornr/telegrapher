@@ -1,7 +1,7 @@
 // Finds comments in TypeScript and Go source, and checks style rules plain code can measure.
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
-export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; size: number; codeAfter: string; codeKey: string[] };
+export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; size: number; codeAfter: string; codeKey: string[]; folder: string };
 export type Issue = { rule: 'wrapped_sentence' | 'crowded_line' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_colon' | 'link_space' | 'link_count' | 'link_mismatch' | 'too_wide' | 'link_added' | 'link_dropped' | 'grew' | 'summary_moved' | 'comment_deleted'; detail: string };
 
 const maxInlineLines = 3;
@@ -64,7 +64,7 @@ export function findComments(path: string, content: string): CommentBlock[] {
 
 		const codeAfter = lines.slice(i).filter(line => line.trim() !== '').slice(0, 12).join('\n');
 		const goName = path.endsWith('.go') ? goDeclaration.exec(lines[i] ?? '')?.[1] ?? null : null;
-		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, size: i - start, codeAfter, codeKey: codeKey(lines.slice(i)) });
+		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, size: i - start, codeAfter, codeKey: codeKey(lines.slice(i)), folder: path.split('/').at(-2) ?? '' });
 	}
 
 	return blocks;
@@ -129,7 +129,9 @@ export function codeIssues(block: CommentBlock): Issue[] {
 
 	// Two short sentences may share line for better shape, never three.
 	// Sentence ends after letter or digit, keeping "0.1 seconds" and "cel.bind" one sentence.
-	if (prose.some(line => (line.replace(/`[^`]*`|"[^"]*"/g, '').replace(hasLinks, '').match(/[\p{L}\p{N}][.!?]["')]* +\p{Lu}/gu) ?? []).length >= 2)) {
+	// Code span stands in as word, keeping sentence it ends, and common abbreviations end nothing.
+	const ends = (line: string) => line.replace(/`[^`]*`|"[^"]*"/g, 'x').replace(/\b(?:e\.g|i\.e|etc|vs)\./gi, 'x').replace(hasLinks, '').match(/[\p{L}\p{N}][.!?]["')]*(?= +\p{Lu})/gu) ?? [];
+	if (prose.some(line => ends(line).length >= 2)) {
 		issues.push({ rule: 'crowded_line', detail: 'Three or more sentences share one line. Keep at most two short ones together.' });
 	}
 
@@ -142,8 +144,9 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const docPath = prose.join('\n').match(/(?<![\w/])(?:docs|\.scratch)\/[\w./-]*[\w/-]|\bADR[ -]?\d{2,4}\b/);
 	if (docPath) issues.push({ rule: 'doc_path', detail: `Points to ${docPath[0]}. State the reason in the comment instead.` });
 
-	// Links end comment, because link in middle stretches its line far past the others.
-	const lines = block.text.map(line => line.trim()).filter(line => line !== '');
+	// Links end comment, because link in middle stretches its line far past others.
+	// Links inside code spans or quotes are examples, not sources.
+	const lines = block.text.map(line => line.replace(/`[^`]*`|"[^"]*"/g, '').trim()).filter(line => line !== '');
 	const firstLink = lines.findIndex(line => hasLink.test(line));
 	if (firstLink >= 0 && lines.slice(firstLink).some(line => !hasLink.test(line) || !endsInLink.test(line))) {
 		issues.push({ rule: 'link_last', detail: 'Text follows a link. End the line with its link, and keep linked lines last. Never move the summary line.' });
@@ -159,13 +162,15 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	const mismatched = lines.filter((line, index) => {
 		const link = line.match(hasLink)?.[0];
 		if (link === undefined) return false;
-		const sentence = urlOnly.test(line) ? lines.slice(0, index).filter(above => !urlOnly.test(above)).join(' ') : line.slice(0, line.search(hasLink));
-		if (names(sentence).length === 0) return false;
+		// Inline link backs last sentence before it, since two sentences may share line.
+		// Link after nothing but list marker, such as "* https://…", backs text above like bare link.
+		const before = textBefore(line);
+		const sentence = /[\p{L}\p{N}]/u.test(before) ? before.split(/(?<=[\p{L}\p{N}][.!?]["')]*)\s+(?=\p{Lu})/u).at(-1) ?? '' : lines.slice(0, index).map(textBefore).join(' ');
+		if (sentence.trim() === '') return false;
 		// Package folder counts as named, as okx.com docs are plain inside exchanges/okx.
-		const named = joined(names(`${sentence} ${block.path.split('/').at(-2) ?? ''}`));
-		const source = joined(names(link.replace(/#L\d+(?:-L\d+)?$/, '')));
+		const named = [...spoken(sentence), ...spoken(block.folder)];
 
-		return !source.some(part => named.some(name => sameName(part, name)));
+		return !sourceNames(link).some(part => named.some(name => sameName(part, name)));
 	});
 	if (mismatched.length > 0) {
 		issues.push({ rule: 'link_mismatch', detail: `Sentence never names source of ${bareLinks(mismatched[0] ?? '')[0]}. End the sentence that names it with this link, or name it here.` });
@@ -264,18 +269,73 @@ export function changedLines(diff: string): Map<string, Set<number>> {
 	return changed;
 }
 
-// URL parts every link shares, which name no source.
-const plainParts = new Set(['http', 'https', 'www', 'com', 'org', 'net', 'io', 'dev', 'html', 'htm', 'md', 'pdf', 'blob', 'tree', 'main', 'master', 'src', 'docs', 'doc', 'en', 'cgi', 'github', 'gitlab', 'raw', 'githubusercontent']);
+// Maps each file in zero-context diff to line numbers its old version removes or replaces.
+export function removedLines(diff: string): Map<string, Set<number>> {
+	const removed = new Map<string, Set<number>>();
+	let current: Set<number> | undefined;
 
-// names splits text into lowercase name parts, letters and digits apart: "RFC 5905" and rfc5905 share rfc and 5905.
-// Commit hashes and one-letter parts name nothing.
-function names(text: string): string[] {
-	return (text.toLowerCase().match(/[a-z]+|\d+/g) ?? []).filter(part => part.length > 1 && !plainParts.has(part) && !/^[0-9a-f]{7,40}$/.test(part));
+	for (const line of diff.split('\n')) {
+		const file = /^\+\+\+ b\/(.+)$/.exec(line);
+		if (file?.[1] !== undefined) {
+			current = new Set();
+			removed.set(file[1], current);
+			continue;
+		}
+		if (line.startsWith('+++ ')) current = undefined;
+
+		const hunk = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(line);
+		if (hunk === null || current === undefined) continue;
+		const start = Number(hunk[1]);
+		const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+		for (let offset = 0; offset < count; offset++) current.add(start + offset);
+	}
+
+	return removed;
 }
 
-// joined adds each pair of neighbouring parts: "NTP Pool" names ntppool.org, and gate.io names gateio.
-function joined(parts: string[]): string[] {
-	return [...parts, ...parts.slice(1).map((part, index) => `${parts[index] ?? ''}${part}`)];
+// URL parts every link shares, which name no source.
+const plainParts = new Set(['http', 'https', 'www', 'com', 'org', 'net', 'io', 'dev', 'html', 'htm', 'md', 'pdf', 'blob', 'tree', 'main', 'master', 'src', 'docs', 'doc', 'en', 'cgi']);
+
+// Code hosts name no source themselves: owner and repository path name it instead.
+const codeHost = /^<?https?:\/\/(?:www\.)?(?:github\.com|gitlab\.com|raw\.githubusercontent\.com)\//;
+
+// parts splits text into lowercase name parts, letters and digits apart: "RFC 5905" and rfc5905 share rfc and 5905.
+// Neighbours join across spaces, hyphens and dots, never across sentence end: "NTP Pool" names ntppool.org.
+// Commit hashes and one-letter parts name nothing.
+function parts(text: string, plain: ReadonlySet<string>): string[] {
+	const tokens = text.toLowerCase().match(/[a-z]+|\d+|[^a-z\d]+/g) ?? [];
+	const found: string[] = [];
+	let previous: string | undefined;
+	let gap = '';
+	for (const token of tokens) {
+		if (!/^[a-z\d]/.test(token)) {
+			gap = token;
+			continue;
+		}
+		found.push(token);
+		if (previous !== undefined && /^(?:|\s+|-|\.)$/.test(gap)) found.push(`${previous}${token}`);
+		previous = token;
+		gap = '';
+	}
+
+	return found.filter(part => part.length > 1 && !plain.has(part) && !/^[0-9a-f]{7,40}$/.test(part));
+}
+
+// textBefore is line up to its first link, or whole line without one.
+function textBefore(line: string): string {
+	const at = line.search(linkStart);
+
+	return at < 0 ? line : line.slice(0, at);
+}
+
+// spoken lists names in prose, where every word counts, GitHub included.
+function spoken(text: string): string[] {
+	return parts(text, new Set());
+}
+
+// sourceNames lists names in link, without line anchor, code host or parts every link shares.
+function sourceNames(link: string): string[] {
+	return parts(link.replace(/#L\d+(?:-L\d+)?$/, '').replace(codeHost, ''), plainParts);
 }
 
 // Longer names match inside each other: currencyconverter names currencyconverterapi.com.
@@ -329,11 +389,13 @@ export function rewriteIssues(text: string[], previous: string[], moved: Readonl
 		issues.push({ rule: 'grew', detail: `Rewrite has ${sizes.now} lines, previous comment had ${sizes.before}. Never add lines${split > 0 ? `, except ${split} to give each link its own line` : ''}.` });
 	}
 
-	// Summary moved when later line keeps more of its words than first line, and at least half.
-	const summary = summaryWords(previous.find(line => line.trim() !== '') ?? '');
+	// Summary is first clause of old first line, up to its link or sentence end, since rest may split off legally.
+	// Moved when new first line keeps under 30% of its words and later line keeps 60% or more.
+	const first = previous.find(line => line.trim() !== '') ?? '';
+	const summary = summaryWords(first.split(linkStart)[0]?.split(/(?<=[\p{L}\p{N}][.!?])\s+(?=\p{Lu})/u)[0] ?? '');
 	const scores = text.map(line => overlap(summary, line));
 	const best = scores.indexOf(Math.max(...scores));
-	const position = best > 0 && (scores[best] ?? 0) >= 0.5 && (scores[best] ?? 0) > (scores[0] ?? 0) ? best : -1;
+	const position = best > 0 && (scores[0] ?? 0) < 0.3 && (scores[best] ?? 0) >= 0.6 ? best : -1;
 	if (position > 0) issues.push({ rule: 'summary_moved', detail: `First line of the previous comment is now line ${position + 1}. Keep it first, and move links or other lines instead.` });
 
 	return issues;

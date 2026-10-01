@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { changedLines, codeIssues, findComments, rewriteIssues } from './comments.ts';
+import { changedLines, codeIssues, findComments, removedLines, rewriteIssues } from './comments.ts';
 
 function rules(source: string): string[][] {
 	return findComments('example.ts', source).map(block => codeIssues(block).map(issue => issue.rule));
@@ -152,6 +152,7 @@ test('maps zero-context diff hunks to the new file line numbers', () => {
 
 	assert.deepEqual([...changedLines(diff)].map(([path, lines]) => [path, [...lines]]), [['tools/a.ts', [4, 5, 12]]]);
 	assert.deepEqual([...changedLines(['+++ b/x.go', '@@ -5 +4,0 @@'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [4, 5]]]);
+	assert.deepEqual([...removedLines(['+++ b/x.go', '@@ -5,2 +4,0 @@', '@@ -9 +7 @@'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [5, 6, 9]]]);
 });
 
 // Stays free of imports, so the rules can move to their own package without Jev or git.
@@ -198,7 +199,7 @@ test('compares a rewrite with its committed version for added or dropped links a
 	assert.deepEqual(rule(['Rate limits stay separate reasons.']), ['link_dropped']);
 	assert.deepEqual(rule(['Rate limits stay separate, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'See RFC 8633: https://www.rfc-editor.org/rfc/rfc8633']), ['link_added', 'grew']);
 	assert.deepEqual(rule(['Rate limits stay separate reasons, as ntpd-rs does: <https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715>']), []);
-	assert.deepEqual(rule(['Rate limits stay', '', 'separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715']), ['grew', 'summary_moved']);
+	assert.deepEqual(rule(['Rate limits stay', '', 'separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715']), ['grew']);
 	assert.deepEqual(rewriteIssues(['Rate limits stay separate.'], ['Rate limits stay separate.'], new Set(), { now: 3, before: 1 }).map(issue => issue.rule), ['grew']);
 	assert.deepEqual(rule(['Rate limits: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'Stay separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715']), ['link_added', 'grew', 'summary_moved']);
 });
@@ -243,4 +244,26 @@ test('second review: crowded lines, autolinks, char literals, reworded summaries
 	const shared = ['Back off as RFC 5905 and ntpd-rs do: https://www.rfc-editor.org/rfc/rfc5905 https://github.com/pendulum-project/ntpd-rs'];
 	const unsplit = ['Back off as RFC 5905 and ntpd-rs do.', 'Both agree: https://www.rfc-editor.org/rfc/rfc5905 https://github.com/pendulum-project/ntpd-rs'];
 	assert.deepEqual(rewriteIssues(unsplit, shared).map(issue => issue.rule), ['grew']);
+});
+
+test('third review: summary clause, sentence-level link names, brands, crowded lines', () => {
+	const shared = ['Parse as upstream specifies: https://example.com/upstream/parse; Retry only as protocol requires: https://example.com/protocol/retry'];
+	const split = ['Parse as upstream specifies: https://example.com/upstream/parse', 'Retry only as protocol requires: https://example.com/protocol/retry'];
+	assert.deepEqual(rewriteIssues(split, shared).map(issue => issue.rule), []);
+	const reworded = ['Discard outdated responses before state changes.', 'Record stale replies before updating state for diagnostics.'];
+	assert.deepEqual(rewriteIssues(reworded, ['Reject stale replies before updating state.', 'Record stale replies for diagnostics.']).map(issue => issue.rule), []);
+
+	assert.deepEqual(rules('run();\n// NIST sets spacing. NICT caps hourly traffic: https://tf.nist.gov/tf-cgi/servers.cgi\nrun();'), [['link_mismatch']]);
+	assert.deepEqual(rules('run();\n// NICT caps hourly traffic. NIST sets spacing: https://tf.nist.gov/tf-cgi/servers.cgi\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// GitHub documents rate limits: https://docs.github.com/en/rest\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Docs: https://cloudflare.com/ntp\nrun();'), [['link_mismatch']]);
+	assert.deepEqual(rules('run();\n// Discard data. Dog failures trigger retries: https://datadoghq.com/ntp\nrun();'), [['link_mismatch']]);
+
+	assert.deepEqual(rules('run();\n// Return `null`. Retry briefly. Abort.\nrun();'), [['crowded_line']]);
+	assert.deepEqual(rules('run();\n// Follow RFC guidance, e.g. PKCE needs entropy. Retry once.\nrun();'), [[]]);
+});
+
+test('links inside code spans or quotes are examples, not sources', () => {
+	assert.deepEqual(rules('run();\n// Link after list marker, such as "* https://example.com", backs text above.\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Parses `https://host:123` forms.\nrun();'), [[]]);
 });
