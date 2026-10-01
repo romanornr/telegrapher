@@ -105,3 +105,84 @@ test('pairs a draft with the committed comment above the same code line, and ask
 		process.chdir(directory);
 	}
 });
+
+// inRepo commits each version of files in fresh repository, then runs check from inside it.
+function inRepo<T>(versions: Record<string, string>[], check: (repo: string) => T): T {
+	const repo = mkdtempSync(join(tmpdir(), 'telegrapher-'));
+	const run = (args: string[]) => execFileSync('git', args, { cwd: repo });
+	run(['init', '-q']);
+	for (const files of versions) {
+		for (const [path, content] of Object.entries(files)) writeFileSync(join(repo, path), content);
+		run(['add', '.']);
+		run(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x']);
+	}
+
+	const directory = process.cwd();
+	process.chdir(repo);
+	try {
+		return check(repo);
+	} finally {
+		process.chdir(directory);
+	}
+}
+
+const ntpRS = 'https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4d5b6cb24f814f5543d85b9138afb4cba/ntp-proto/src/source.rs#L1339';
+
+test('pairs a draft given by absolute path, and says when no single committed comment fits', () => {
+	const source = 'package x\n\n// Data type descriptors.\nconst (\n\ta = 1\n)\n\n// Job status descriptors.\nconst (\n\tb = 2\n)\n\n// waits on socket: https://go.dev/x\nfunc b() {}\n';
+	inRepo([{ 'x.go': source }], repo => {
+		const absolute = readCommentStyle({ files: [join(repo, 'x.go')], draft: '// waits on socket.\nfunc  b()  {}' });
+		assert.deepEqual(absolute.comments[0]?.issues.map(issue => issue.rule), ['link_dropped']);
+
+		const ambiguous = readCommentStyle({ files: ['x.go'], draft: '// Job status names.\nconst (' });
+		assert.equal(ambiguous.comments[0]?.previous, null);
+		assert.match(ambiguous.notes?.[0] ?? '', /rewrite checks were skipped/);
+		const paired = readCommentStyle({ files: ['x.go'], draft: '// Job status names.\nconst (\n\tb = 2' });
+		assert.deepEqual(paired.comments[0]?.previous, ['Job status descriptors.']);
+	});
+});
+
+test('in a diff, flags a dropped link line and a comment deleted while its code stays', async () => {
+	const before = {
+		'q_test.go': `package engine\n\n// TestCorrelation checks replies reach caller only when they match request.\n// Matching kiss-o'-death cases follow ntpd-rs test_handle_kod: ${ntpRS}\nfunc TestCorrelation() {}\n`,
+		'r.go': 'package engine\n\nfunc run() {\n\t// GCT keeps its raw UDP adapter for these checks.\n\tquery()\n\t// Reads clocks.\n\tread()\n}\n\n// Removed explains removed code.\nfunc Removed() {}\n',
+	};
+	const after = {
+		'q_test.go': 'package engine\n\n// TestCorrelation checks replies reach caller only when they match request.\nfunc TestCorrelation() {}\n',
+		'r.go': 'package engine\n\nfunc run() {\n\tquery()\n\tread()\n}\n',
+	};
+
+	const request = inRepo([before, after], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }));
+	const found = request.comments.map(comment => [comment.path, comment.text[0], comment.issues.map(issue => issue.rule)]);
+	assert.deepEqual(found, [
+		['q_test.go', 'TestCorrelation checks replies reach caller only when they match request.', ['link_dropped']],
+		['r.go', 'GCT keeps its raw UDP adapter for these checks.', ['comment_deleted']],
+		['r.go', 'Reads clocks.', ['comment_deleted']],
+	]);
+
+	// Jev may clear deleted comment that only repeats its code, never one citing source or documenting exported Go name.
+	const report = await runCommentStyle(request, jev('sk-test', async (_, init) => {
+		const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown>; state: { comment: string } };
+		const restates = body.state.comment === 'Reads clocks.' ? 0.9 : 0.1;
+
+		return Response.json({ model: 'jev', answers: Object.fromEntries(Object.keys(body.questions).map(name => [name, { type: 'noul', noul: name === 'restates_code' ? restates : 0.1 }])), usage: { input_tokens: 1, output_tokens: 1 } });
+	}));
+	assert.equal(report.findings.length, 2);
+	assert.doesNotMatch(report.findings.join('\n'), /Reads clocks/);
+});
+
+test('always flags a deleted doc comment on an exported Go name', async () => {
+	const request = inRepo([
+		{ 'n.go': 'package engine\n\n// QueryNTP reads clock.\nfunc QueryNTP() {}\n' },
+		{ 'n.go': 'package engine\n\nfunc QueryNTP() {}\n' },
+	], () => readCommentStyle({ files: [], diff: 'HEAD~1..HEAD' }));
+	let asked = 0;
+	const report = await runCommentStyle(request, jev('sk-test', async () => {
+		asked++;
+
+		return Response.json({ model: 'jev', answers: { restates_code: { type: 'noul', noul: 0.9 } }, usage: { input_tokens: 1, output_tokens: 1 } });
+	}));
+
+	assert.equal(asked, 0);
+	assert.match(report.findings[0] ?? '', /comment_deleted/);
+});

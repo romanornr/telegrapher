@@ -36,24 +36,27 @@ func fetchWithRetry(url string) error {
 ```
 
 ```text
-comment-style: 2 of 3 comments need a look ($0.000084)
+comment-style: 2 of 3 comments need a look ($0.000089)
 
 client.go:8  See https://github.com/cenkalti/backoff
   name_first: Start with baseDelay, the name this comment documents.
-  status (Jev 87%): describes status or progress, not a lasting fact
-  unexplained_source (Jev 73%): cites a source without saying what idea it takes
+  link_colon: Link follows text without a colon. Put a colon and a space before the link.
+  status (Jev 89%): describes status or progress, not a lasting fact
+  unexplained_source (Jev 74%): cites a source without saying what idea it takes
 
-client.go:11  Retry the request a few times; the server can still be starting up after a deploy.
+client.go:11  Retry the request a few times; the server can still be starting up…
   wrapped_sentence: 1 sentence(s) continue on the next line. Keep each sentence on one line.
-  semicolon: Semicolon joins two sentences. Split them.
-  two_sentences: Two sentences share one line. Give each its own line.
+  semicolon: Semicolon joins two sentences. End the first with a period.
   name_first: Start with fetchWithRetry, the name this comment documents.
   doc_path: Points to docs/retries.md. State the reason in the comment instead.
+  link_last: Text follows a link. End the line with its link, and keep linked lines last. Never move the summary line.
+  link_line: Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.
   too_long: 6 lines of text inside code, above 3. Links do not count.
-  not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
-  uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 zigzag. Rebalance the sentences so lengths only grow, only shrink, or stay within 15%.
-  jargon (Jev 81%): uses jargon where plain words would do. Jev does not say which word, and established technical terms are fine
-  status (Jev 91%): describes status or progress, not a lasting fact
+  not_telegraphic: Drop where meaning survives: the ×6, a ×4, can ×1, still ×1, so ×1, just ×1.
+  uneven_lines: Line lengths 82, 67, 61, 79, 73, 59, 44 dip before the link. Each line should be at least as long as the one above, so the link line ends widest.
+  status (Jev 89%): describes status or progress, not a lasting fact
+
+Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing until nothing is flagged.
 ```
 
 Agent rewrites, reruns and fixes what is left, until nothing is flagged:
@@ -196,29 +199,33 @@ It reads comments in Go, TypeScript and JavaScript. It flags. You rewrite.
 Code checks run locally, free, with no account or key:
 
 - `wrapped_sentence`: a sentence continues on the next line.
-- `two_sentences`: two sentences share one line.
-- `semicolon`: a semicolon joins two sentences.
-- `uneven_lines`: line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. Links do not count toward length.
+- `semicolon`: a semicolon joins two sentences. Two sentences may share a line when that evens out the shape.
+- `uneven_lines`: without a link, line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. With a link, each line, measured with its link, must be at least as long as the line above, so the link line ends widest.
 - `too_long`: more than 3 lines of text inside code. Links do not count.
 - `too_wide`: a line holds more than 120 characters of text. Links do not count.
-- `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
+- `not_telegraphic`: any article or connective word that can usually go: a, an, the, can, own, so, even, still, just, really, basically, actually, simply, very, quite, and the phrases "these are", "at once" and "for example". It names them, and you decide where meaning survives.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
-- `link_last`: a link sits before more text. Move the link to the end of the last line, or onto its own final line in a short comment, and never move the summary line.
+- `link_last`: text follows a link. Each link ends its line, and linked lines come last. Never move the summary line.
+- `link_colon`: a link follows text without a colon.
 - `link_space`: a colon touches a link. Put a space between them.
 - `link_count`: two links share one line. End each sentence a link supports with its own link, on the last lines.
+- `link_line`: a link on its own line needs one or two lines of text above it, and the comment stays within three lines. Otherwise end the last line of text with a colon, then the link.
 
-Rewrites are compared with the committed comment above the same code line: `HEAD` for files, drafts and staged changes, or the start of `--diff`.
+Rewrites are compared with the committed comment above the same code: `HEAD` for files, drafts and staged changes, or the start of `--diff`.
+A draft passed with `--stdin` pairs only when its code lines match one committed comment. Otherwise telegrapher says rewrite checks were skipped.
 
-- `link_added`: a rewrite adds a link the committed comment did not have.
+- `link_added`: a rewrite adds a link, or repeats one, that the committed comment did not have.
 - `link_dropped`: a rewrite drops a link the committed comment had.
-- `grew`: a rewrite has more lines than the committed comment.
-- `link_line`: a link has its own line under three or more lines of text. End the last line with a colon, then the link.
+- `grew`: a rewrite has more lines than the committed comment, blank lines included. Only exception: one extra line for each link that shared a line, so it gets its own.
+- `summary_moved`: the committed comment's first line is no longer first.
+- `comment_deleted`: in `--diff` and staged changes, a comment is gone while its code stays. With Jev, deleting a comment that only repeats its code is fine, except a Go doc comment on an exported name or a comment with a link.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
 See [Set up a Jev key](#set-up-a-jev-key).
 [Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
-Each answer is yes or no with a probability, so telegrapher flags only answers at 65% or above.
+Each answer is yes or no with a probability, so telegrapher flags only answers at 65% or above, and jargon at 90% or above.
+Jev scored invented words 91-95% and established technical terms 79-83%, so a lower jargon threshold flags terms such as kiss-o'-death.
 It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
 Jev is a paid service, used directly from TypeSafe or through OpenRouter, and costs a fraction of a cent per comment.
 Only the comments, files and diff you pass are sent, so never pass secrets or private code.
@@ -792,7 +799,7 @@ Every comment-only change in the engine, original against final, as `git diff` s
 ## Rules
 
 1. Newcomer first: everyday words, then why, then any technical term once.
-2. One sentence per line. No semicolons.
+2. One sentence per line, unless two short ones on one line even out the shape. No semicolons.
 3. Lines of similar length. A short last line reads as an afterthought.
 4. Telegraphic: drop articles and filler where meaning survives. Terse, not cryptic.
 5. Durable facts only. Rollout status belongs in the PR.

@@ -11,7 +11,7 @@ test('passes an even, one-sentence-per-line comment inside code', () => {
 	const source = [
 		'const x = 1;',
 		'// Compiles MQL any(list, condition) into CEL loop, which counts each loop step against cost limit.',
-		'// Each nested any gets its own loop variable, so items never mix, and each loop stops at first match.',
+		'// Each nested any gets separate loop variable, keeping items apart, and each loop stops at first match.',
 		'// Only top-level any over body.links reports matching links, as cel-go macro expansion does: https://github.com/cel-expr/cel-go/blob/f2039bc647bca407d882d90436fc8b91bab1ae62/parser/macro.go#L517-L525',
 		'function lowerAny() {}',
 	].join('\n');
@@ -27,7 +27,7 @@ test('flags a sentence wrapped onto the next line', () => {
 		'run();',
 	].join('\n');
 
-	assert.deepEqual(rules(source), [['wrapped_sentence', 'two_sentences']]);
+	assert.deepEqual(rules(source), [['wrapped_sentence']]);
 });
 
 test('allows lines that stay even, only grow or only shrink, and flags a zigzag', () => {
@@ -37,11 +37,12 @@ test('allows lines that stay even, only grow or only shrink, and flags a zigzag'
 	assert.deepEqual(rules(comment(98, 102, 100)), [[]]);
 	assert.deepEqual(rules(comment(60, 80, 40)), [['uneven_lines']]);
 	assert.deepEqual(rules(comment(102, 114, 67)), [['uneven_lines']]);
+	assert.deepEqual(rules(comment(99, 103, 23)), [['uneven_lines']]);
 });
 
 test('measures a line that carries a link without the link, so text crammed before it still counts', () => {
 	const crammed = ['run();', '// ntpReplyChecks adds reply checks that beevik lacks, without replacing its parser.', `// Unlike beevik, it returns kiss-o'-death replies even with empty timestamps, and rejects missing receive timestamps, unlike any version so far: https://github.com/beevik/ntp/blob/953b636/ntp4.go`, '// It rejects old versions: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', 'run();'].join('\n');
-	assert.deepEqual(rules(crammed), [['too_wide', 'uneven_lines']]);
+	assert.deepEqual(rules(crammed), [['too_wide', 'not_telegraphic', 'uneven_lines']]);
 });
 
 test('leaves lines that carry a link out of line balance', () => {
@@ -60,7 +61,29 @@ test('allows a link on its own line only under one or two lines of text', () => 
 	assert.deepEqual(rules(short), [[]]);
 	const long = ['const x = 1;', '// Closing socket on cancel unblocks pending read of NTP library.', '// Library could overwrite deadline set here after dialer returns.', '// Closing via callback follows Go context example for connections.', '// https://github.com/golang/go/blob/go1.27.0/src/context/example_test.go', 'run();'].join('\n');
 	assert.deepEqual(rules(long), [['link_line']]);
-	assert.deepEqual(rules('run();\n// https://example.com/spec\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// https://example.com/spec\nrun();'), [['link_line']]);
+	assert.deepEqual(rules('run();\n// Clock policy follows both sources:\n// https://github.com/beevik/ntp/blob/953b636/ntp4.go\n// https://github.com/systemd/systemd/blob/885fe07/timesyncd.c\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Reject stale replies.\n// Clock policy follows both sources:\n// https://example.com/a\n// https://example.com/b\nrun();'), [['link_line', 'uneven_lines']]);
+});
+
+test('flags a link that does not end its line, or follows text without a colon', () => {
+	assert.deepEqual(rules('run();\n// Follow https://example.com/spec when replies arrive.\nrun();'), [['link_last', 'link_colon']]);
+	assert.deepEqual(rules('run();\n// Reject stale replies https://example.com/spec\nrun();'), [['link_colon']]);
+	assert.deepEqual(rules('run();\n// Reject stale replies, as spec asks: https://example.com/spec.\nrun();'), [[]]);
+});
+
+test('counts whole links, and leaves words inside links out of other checks', () => {
+	assert.deepEqual(rules('run();\n// Login follows provider: https://example.com/auth?next=https://example.com/the/a/done\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Reject stale replies, as spec asks: https://example.com/x;y\nrun();'), [[]]);
+});
+
+test('a line ending in a link ends its sentence', () => {
+	const source = ['run();', '// Back off on RATE replies, as RFC 5905 asks: https://www.rfc-editor.org/rfc/rfc5905#section-7.4', '// ntpd-rs backs off on RATE replies same way: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4d5b6cb24f814f5543d85b9138afb4cba/ntp-proto/src/source.rs#L715', 'run();'].join('\n');
+	assert.deepEqual(rules(source), [[]]);
+});
+
+test('an unclosed fence hides nothing', () => {
+	assert.deepEqual(rules('run();\n// ```\n// Flags, not counts; several apply.\nrun();'), [['semicolon']]);
 });
 
 test('flags a link followed by more text, but not a tail of source lines', () => {
@@ -71,9 +94,11 @@ test('flags a link followed by more text, but not a tail of source lines', () =>
 });
 
 test('flags semicolons outside code spans, doc paths and ADR numbers', () => {
-	assert.deepEqual(rules('run();\n// Flags, not counts; several can apply.\nrun();'), [['semicolon']]);
+	assert.deepEqual(rules('run();\n// Flags, not counts; several apply.\nrun();'), [['semicolon']]);
+	assert.deepEqual(rules('run();\n// Flags, not counts;several apply.\nrun();'), [['semicolon']]);
+	assert.deepEqual(rules('run();\n// Rejects input containing "x; y".\nrun();'), [[]]);
 	assert.deepEqual(rules('run();\n// Joins with `a; b` inside code.\nrun();'), [[]]);
-	assert.deepEqual(rules('run();\n// See docs/adr/0013-route.md for the policy.\nrun();'), [['doc_path']]);
+	assert.deepEqual(rules('run();\n// See docs/adr/0013-route.md for policy.\nrun();'), [['doc_path']]);
 	assert.deepEqual(rules('run();\n// ADR 0013 explains this.\nrun();'), [['doc_path']]);
 });
 
@@ -126,6 +151,7 @@ test('maps zero-context diff hunks to the new file line numbers', () => {
 	const diff = ['+++ b/tools/a.ts', '@@ -3,0 +4,2 @@', '+x', '+y', '@@ -10 +12 @@', '+z', '+++ /dev/null', '@@ -1 +0,0 @@'].join('\n');
 
 	assert.deepEqual([...changedLines(diff)].map(([path, lines]) => [path, [...lines]]), [['tools/a.ts', [4, 5, 12]]]);
+	assert.deepEqual([...changedLines(['+++ b/x.go', '@@ -5 +4,0 @@'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [4, 5]]]);
 });
 
 // Stays free of imports, so the rules can move to their own package without Jev or git.
@@ -141,18 +167,22 @@ test('flags articles and filler for telegraphic style, ignoring code spans and q
 	assert.deepEqual(rules('run();\n// Returns `the a` or "the an", never empty string.\nrun();'), [[]]);
 	const [block] = findComments('x.ts', 'run();\n// The cost of the search is just a guess.\nrun();');
 	assert.equal(block === undefined ? '' : codeIssues(block).find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: the ×2, just ×1, a ×1.');
+	const [phrases] = findComments('x.ts', 'run();\n// Retry at once, for example after timeout, so callers can see it.\nrun();');
+	assert.equal(phrases === undefined ? '' : codeIssues(phrases).find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: at once ×1, for example ×1, so ×1, can ×1.');
+	assert.deepEqual(rules('run();\n// Just retry.\nrun();'), [['not_telegraphic']]);
+	assert.deepEqual(rules('run();\n// Wait for reply.\nrun();'), [[]]);
 });
 
-test('flags two sentences on one line, but not decimals, dotted names or quotes', () => {
-	assert.deepEqual(rules('run();\n// Groups gaps. Capability gaps need outside services.\nrun();'), [['two_sentences']]);
-	assert.deepEqual(rules('run();\n// Took 0.1 seconds, like cel.bind in Go.\nrun();'), [[]]);
-	assert.deepEqual(rules('run();\n// Returns "done. Next" on success.\nrun();'), [[]]);
+test('allows two sentences on one line when that evens out shape', () => {
+	const source = ['run();', '// Treat RATE, DENY and RSTR replies as refusals from one server, never as evidence about local clock.', '// Other servers keep voting: one refusing server lowers agreement count, never shifts clock offset. Retry next check.', 'run();'].join('\n');
+	assert.deepEqual(rules(source), [[]]);
 });
 
 test('Go comments start with the name declared below them', () => {
 	const source = 'package mql\n\n// Turns any into loop.\nfunc lowerAny() {}\n\n// lowerAll turns all into loop.\nfunc lowerAll() {}\n\n// Kind returns match.\nfunc (Matched) Kind() string { return "" }\n\n// Groups of values.\nconst (\n\tx = 1\n)\n';
 	assert.deepEqual(findComments('x.go', source).map(block => codeIssues(block).map(issue => issue.rule)), [['name_first'], [], [], []]);
 	assert.deepEqual(findComments('x.ts', '// Turns any into loop.\nfunction lowerAny() {}\n').map(block => block.goName), [null]);
+	assert.deepEqual(findComments('x.go', 'package x\n\n/* Work handles requests. */\nfunc Work() {}\n').map(block => codeIssues(block).map(issue => issue.rule)), [[]]);
 });
 
 test('doc_path leaves out the period that ends the sentence', () => {
@@ -167,4 +197,22 @@ test('compares a rewrite with its committed version for added or dropped links a
 	assert.deepEqual(rule(['Rate limits and refusals stay separate, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715.']), []);
 	assert.deepEqual(rule(['Rate limits stay separate reasons.']), ['link_dropped']);
 	assert.deepEqual(rule(['Rate limits stay separate, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'See RFC 8633: https://www.rfc-editor.org/rfc/rfc8633']), ['link_added', 'grew']);
+	assert.deepEqual(rule(['Rate limits stay separate reasons, as ntpd-rs does: <https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715>']), []);
+	assert.deepEqual(rule(['Rate limits stay', '', 'separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715']), ['grew']);
+	assert.deepEqual(rule(['Rate limits: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'Stay separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715']), ['link_added', 'grew']);
+});
+
+test('lets a rewrite add only the lines that give each shared link its own line', () => {
+	const before = ['Back off on RATE replies as RFC 5905 and ntpd-rs do: https://www.rfc-editor.org/rfc/rfc5905#section-7.4 https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715'];
+	const split = ['Back off on RATE replies, as RFC 5905 asks: https://www.rfc-editor.org/rfc/rfc5905#section-7.4', 'ntpd-rs backs off on RATE replies same way: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715'];
+	assert.deepEqual(rewriteIssues(split, before).map(issue => issue.rule), []);
+	assert.deepEqual(rewriteIssues([...split, 'Retry next check.'], before).map(issue => issue.rule), ['grew']);
+});
+
+test('flags a rewrite that moves the summary line down', () => {
+	const before = ['Report rate limits and refusals as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715', 'Several reasons may appear together.'];
+	const moved = ['Several reasons may appear together.', 'Report rate limits and refusals as separate reasons, as ntpd-rs does: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715'];
+	assert.deepEqual(rewriteIssues(moved, before).map(issue => issue.rule), ['summary_moved']);
+	const linkMoved = ['Report rate limits and refusals as separate reasons, as ntpd-rs does', 'Several reasons may appear together: https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb/source.rs#L715'];
+	assert.deepEqual(rewriteIssues(linkMoved, before).map(issue => issue.rule), []);
 });

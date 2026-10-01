@@ -197,6 +197,7 @@ async function main(): Promise<number> {
 			console.log(JSON.stringify(report.record, null, 2));
 		} else {
 			console.log(report.summary);
+			for (const note of report.notes ?? []) console.log(note);
 
 			for (const finding of report.findings) console.log(`\n${finding}`);
 			if (report.next) console.log(`\n${report.next}`);
