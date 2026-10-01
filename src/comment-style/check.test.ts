@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { runCommentStyle, type CommentStyleRequest } from './check.ts';
+import { preview, runCommentStyle, type CommentStyleRequest } from './check.ts';
 import { codeIssues, findComments } from './comments.ts';
 import { jev } from '../request.ts';
 
@@ -55,4 +55,10 @@ test('without Jev, code checks still run and nothing is sent', async () => {
 
 	assert.equal(report.summary, 'comment-style: 1 of 1 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal)');
 	assert.match(report.findings[0] ?? '', /semicolon/);
+});
+
+test('preview shortens a long first line at a word', () => {
+	assert.equal(preview('short line'), 'short line');
+	assert.equal(preview('Maps each file in a zero-context diff to the line numbers its new version adds or changes.', 40), 'Maps each file in a zero-context diff…');
+	assert.equal(preview('x'.repeat(50), 10), `${'x'.repeat(9)}…`);
 });

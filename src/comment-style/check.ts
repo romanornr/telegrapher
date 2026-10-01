@@ -107,7 +107,7 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 	}
 
 	const findings = answered.filter(comment => comment.issues.length > 0 || comment.flags.length > 0).map(comment => [
-		`${comment.path}:${comment.line}  ${comment.text[0] ?? ''}`,
+		`${comment.path}:${comment.line}  ${preview(comment.text[0] ?? '')}`,
 		...comment.issues.map(issue => `  ${issue.rule}: ${issue.detail}`),
 		...comment.flags.map(flag => `  ${flag.name}: ${labels[flag.name]} (Jev, ${flag.probability.toFixed(2)})`),
 	].join('\n'));
@@ -118,6 +118,15 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 		findings,
 		record: { pack: request.pack, comments: answered },
 	};
+}
+
+// preview shortens first line of comment at word, so each finding fits one terminal line.
+// path:line already locates comment in file, and --json output keeps its full text.
+export function preview(line: string, width = 72): string {
+	if (line.length <= width) return line;
+	const cut = line.lastIndexOf(' ', width - 1);
+
+	return `${line.slice(0, cut > 0 ? cut : width - 1)}…`;
 }
 
 // The comment above the package clause of doc.go. Missing files give no context rather than an error.
