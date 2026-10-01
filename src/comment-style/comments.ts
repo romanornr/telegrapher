@@ -8,6 +8,8 @@ const maxInlineLines = 3;
 const minLineRatio = 0.85;
 const urlOnly = /^https?:\/\/\S+$/;
 const hasLink = /https?:\/\/\S+/;
+const hasLinks = /https?:\/\/\S+/g;
+const flatStep = 0.05;
 
 // Name of a Go function, method, type, constant or variable declared on this line. Groups have no single name.
 const goDeclaration = /^(?:func (?:\([^)]*\) )?|type |const |var )([\p{L}_][\p{L}\p{N}_]*)/u;
@@ -144,9 +146,16 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	}
 
 	if (prose.length >= 2 && !block.text.some(line => listItem.test(line) || line.startsWith('```'))) {
-		// Line ending in link only introduces its source, so it does not count toward balance.
-		const lengths = prose.filter(line => !hasLink.test(line)).map(line => line.length);
-		if (lengths.length >= 2 && Math.min(...lengths) < minLineRatio * Math.max(...lengths)) issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} differ by more than ${Math.round((1 - minLineRatio) * 100)}%. Rebalance the sentences.` });
+		// Lines are measured without links, so text crammed before any link counts too.
+		const lengths = prose.map(line => line.replace(hasLinks, '').trimEnd().length);
+		// Lines may stay even, only grow or only shrink, and tiny steps count as flat.
+		// Line sticking out past its neighbours, up then down or down then up, reads as ragged.
+		const flat = flatStep * Math.max(...lengths);
+		const steps = lengths.slice(1).map((length, index) => length - (lengths[index] ?? 0)).filter(step => Math.abs(step) > flat);
+		const even = Math.min(...lengths) >= minLineRatio * Math.max(...lengths);
+		if (!even && steps.some(step => step > 0) && steps.some(step => step < 0)) {
+			issues.push({ rule: 'uneven_lines', detail: `Line lengths ${lengths.join(', ')} zigzag. Rebalance the sentences so lengths only grow, only shrink, or stay within ${Math.round((1 - minLineRatio) * 100)}%.` });
+		}
 	}
 
 	return issues;

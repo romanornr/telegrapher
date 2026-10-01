@@ -51,7 +51,7 @@ client.go:11  Retry the request a few times; the server can still be starting up
   doc_path: Points to docs/retries.md. State the reason in the comment instead.
   too_long: 6 lines of text inside code, above 3. Links do not count.
   not_telegraphic: Drop where meaning survives: the ×6, a ×4, still ×1, just ×1.
-  uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 differ by more than 15%. Rebalance the sentences.
+  uneven_lines: Line lengths 82, 67, 61, 79, 59, 44 zigzag. Rebalance the sentences so lengths only grow, only shrink, or stay within 15%.
   jargon (Jev 81%): uses jargon where plain words would do. Jev does not say which word, and established technical terms are fine
   status (Jev 91%): describes status or progress, not a lasting fact
 ```
@@ -198,7 +198,7 @@ Code checks run locally, free, with no account or key:
 - `wrapped_sentence`: a sentence continues on the next line.
 - `two_sentences`: two sentences share one line.
 - `semicolon`: a semicolon joins two sentences.
-- `uneven_lines`: line lengths differ by more than 15%.
+- `uneven_lines`: line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. Links do not count toward length.
 - `too_long`: more than 3 lines of text inside code. Links do not count.
 - `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
 - `doc_path`: points to an internal document instead of stating the reason.

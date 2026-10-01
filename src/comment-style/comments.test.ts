@@ -19,7 +19,7 @@ test('passes an even, one-sentence-per-line comment inside code', () => {
 	assert.deepEqual(rules(source), [[]]);
 });
 
-test('flags a sentence wrapped onto the next line, and uneven lines', () => {
+test('flags a sentence wrapped onto the next line', () => {
 	const source = [
 		'const x = 1;',
 		'// Each MQL scope receives unique CEL binding. Evaluation stops at first true',
@@ -27,7 +27,21 @@ test('flags a sentence wrapped onto the next line, and uneven lines', () => {
 		'run();',
 	].join('\n');
 
-	assert.deepEqual(rules(source), [['wrapped_sentence', 'two_sentences', 'uneven_lines']]);
+	assert.deepEqual(rules(source), [['wrapped_sentence', 'two_sentences']]);
+});
+
+test('allows lines that stay even, only grow or only shrink, and flags a zigzag', () => {
+	const comment = (...lengths: number[]) => ['run();', ...lengths.map(length => `// ${'x'.repeat(length - 1)}.`), 'run();'].join('\n');
+	assert.deepEqual(rules(comment(40, 60, 80)), [[]]);
+	assert.deepEqual(rules(comment(80, 60, 40)), [[]]);
+	assert.deepEqual(rules(comment(98, 102, 100)), [[]]);
+	assert.deepEqual(rules(comment(60, 80, 40)), [['uneven_lines']]);
+	assert.deepEqual(rules(comment(102, 114, 67)), [['uneven_lines']]);
+});
+
+test('measures a line that carries a link without the link, so text crammed before it still counts', () => {
+	const crammed = ['run();', '// ntpReplyChecks adds reply checks that beevik lacks, without replacing its parser.', `// Unlike beevik, it returns kiss-o'-death replies even with empty timestamps, and rejects missing receive timestamps, unlike any version so far: https://github.com/beevik/ntp/blob/953b636/ntp4.go`, '// It rejects old versions: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', 'run();'].join('\n');
+	assert.deepEqual(rules(crammed), [['uneven_lines']]);
 });
 
 test('leaves lines that carry a link out of line balance', () => {
