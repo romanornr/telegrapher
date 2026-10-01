@@ -41,7 +41,7 @@ test('allows lines that stay even, only grow or only shrink, and flags a zigzag'
 
 test('measures a line that carries a link without the link, so text crammed before it still counts', () => {
 	const crammed = ['run();', '// ntpReplyChecks adds reply checks that beevik lacks, without replacing its parser.', `// Unlike beevik, it returns kiss-o'-death replies even with empty timestamps, and rejects missing receive timestamps, unlike any version so far: https://github.com/beevik/ntp/blob/953b636/ntp4.go`, '// It rejects old versions: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', 'run();'].join('\n');
-	assert.deepEqual(rules(crammed), [['uneven_lines']]);
+	assert.deepEqual(rules(crammed), [['too_wide', 'uneven_lines']]);
 });
 
 test('leaves lines that carry a link out of line balance', () => {
@@ -92,6 +92,11 @@ test('flags two links on one line, but not one link per sentence at the end', ()
 	assert.deepEqual(rules(shared), [['link_count']]);
 	const each = ['const x = 1;', '// Rejects old NTP versions, as systemd-timesyncd does: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', '// Parsing stays in beevik, which lacks these checks: https://github.com/beevik/ntp/blob/953b636/ntp4.go', 'run();'].join('\n');
 	assert.deepEqual(rules(each), [[]]);
+});
+
+test('flags a line over 120 characters of text, not counting links', () => {
+	assert.deepEqual(rules(`run();\n// ${'x'.repeat(120)}.\nrun();`), [['too_wide']]);
+	assert.deepEqual(rules(`run();\n// ${'x'.repeat(100)}: https://github.com/beevik/ntp/blob/953b63646f5273d44de88b68e5862ad155ed4660/ntp4.go#L262\nrun();`), [[]]);
 });
 
 test('flags a colon touching a link', () => {

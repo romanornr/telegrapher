@@ -200,6 +200,7 @@ Code checks run locally, free, with no account or key:
 - `semicolon`: a semicolon joins two sentences.
 - `uneven_lines`: line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. Links do not count toward length.
 - `too_long`: more than 3 lines of text inside code. Links do not count.
+- `too_wide`: a line holds more than 120 characters of text. Links do not count.
 - `not_telegraphic`: two or more filler words such as "the", "a" or "just". It names them, and you decide.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.

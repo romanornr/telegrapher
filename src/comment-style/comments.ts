@@ -2,9 +2,10 @@
 // Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
 
 export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; codeAfter: string };
-export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space' | 'link_count'; detail: string };
+export type Issue = { rule: 'wrapped_sentence' | 'two_sentences' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_space' | 'link_count' | 'too_wide'; detail: string };
 
 const maxInlineLines = 3;
+const maxLineWidth = 120;
 const minLineRatio = 0.85;
 const urlOnly = /^https?:\/\/\S+$/;
 const hasLink = /https?:\/\/\S+/;
@@ -134,6 +135,10 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	}
 
 	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count.` });
+
+	// Width cap stops text from being folded into one long line to stay within line limit.
+	const widest = Math.max(0, ...prose.map(line => line.replace(hasLinks, '').trimEnd().length));
+	if (widest > maxLineWidth) issues.push({ rule: 'too_wide', detail: `Line has ${widest} characters of text, above ${maxLineWidth}. Links do not count. Cut words, not meaning.` });
 
 	// Code spans and quoted strings are data, not prose.
 	const words = prose.join(' ').replace(/`[^`]*`|"[^"]*"/g, ' ').toLowerCase().match(/[a-z]+(?:'[a-z]+)?/g) ?? [];
