@@ -1,0 +1,7 @@
+#!/bin/sh
+# Block commits that still contain merge conflict markers, including jj's (git's built-in check).
+if git diff --cached --check | grep -q 'leftover conflict marker'; then
+  echo "pre-commit: conflict markers in staged files; resolve them first." >&2
+  git diff --cached --check | grep 'leftover conflict marker' >&2
+  exit 1
+fi
