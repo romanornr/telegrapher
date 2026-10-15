@@ -1,4 +1,4 @@
-import { TypeSafeClient, type Fetch, type JsonValue, type Questions, type SystemOneResult } from '@typesafe-ai/sdk';
+import { APIError, TypeSafeClient, type Fetch, type JsonValue, type Questions, type SystemOneResult } from '@typesafe-ai/sdk';
 
 // Jev is reachable directly at TypeSafe or through OpenRouter, each with its own key.
 export const providers = {
@@ -23,10 +23,10 @@ export type State = Record<string, JsonValue>;
 export type Ask = <const Q extends Questions>(state: State, questions: Q) => Promise<SystemOneResult<Q>>;
 
 // A check's outcome: one summary line, one entry per finding, and the full record saved locally.
-export type Report = { summary: string; findings: string[]; notes?: string[]; next?: string; record: unknown };
+export type Report = { exitCode: 0 | 1 | 2; summary: string; findings: string[]; failures?: string[]; notes?: string[]; next?: string; record: unknown };
 
 export function jev(apiKey: string, fetch?: Fetch): Ask {
-	const client = new TypeSafeClient({ apiKey, baseURL: providers[providerOf(apiKey)].baseURL, fetch, logLevel: 'off', timeout: 30_000 });
+	const client = new TypeSafeClient({ apiKey, baseURL: providers[providerOf(apiKey)].baseURL, fetch, logLevel: 'off', timeout: 30_000, retry: { httpStatuses: new Set([408, ...Array.from({ length: 100 }, (_, index) => 500 + index)]) } });
 
 	return (state, questions) => client.systemOne({ model, state, questions });
 }
@@ -37,4 +37,17 @@ export function costOf(result: SystemOneResult<Questions>): number | undefined {
 	if ('cost' in result.usage && typeof result.usage.cost === 'number') return result.usage.cost;
 
 	return undefined;
+}
+
+export function jevFailure(error: unknown): { detail: string; stop: boolean } {
+	if (!(error instanceof APIError)) return { detail: error instanceof Error ? error.name : 'unknown error', stop: false };
+	const body = error.body;
+	const response = typeof body === 'object' && body !== null && 'error' in body ? body.error : body;
+	let value: unknown = response;
+	if (typeof response === 'object' && response !== null) {
+		value = 'code' in response ? response.code : 'type' in response ? response.type : 'error_code' in response ? response.error_code : undefined;
+	}
+	const code = typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/i.test(value) ? value : typeof value === 'number' && Number.isFinite(value) ? String(value) : undefined;
+	const stop = [401, 402, 403, 429].includes(error.status) || code !== undefined && /quota|credit|payment|billing|authentication|invalid_api_key/i.test(code);
+	return { detail: `HTTP ${error.status}${code ? ` (${code})` : ''}`, stop };
 }

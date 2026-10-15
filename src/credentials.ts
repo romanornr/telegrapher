@@ -8,12 +8,15 @@ type Env = Record<string, string | undefined>;
 export type KeySource = 'JEV_API_KEY' | 'saved' | 'OPENROUTER_API_KEY';
 export type FoundKey = { key: string; source: KeySource };
 
-// credentialsPath uses ~/.config like other command-line tools, so key never lives inside project.
+// configDirectory keeps configuration and credentials together outside the project.
 // XDG_CONFIG_HOME, usual way to move ~/.config, must be absolute, so relative values are ignored.
-export function credentialsPath(env: Env = process.env): string {
+export function configDirectory(env: Env = process.env, home = homedir()): string {
 	const configHome = env.XDG_CONFIG_HOME?.trim();
+	return join(configHome && isAbsolute(configHome) ? configHome : join(home, '.config'), 'telegrapher');
+}
 
-	return join(configHome && isAbsolute(configHome) ? configHome : join(homedir(), '.config'), 'telegrapher', 'credentials');
+export function credentialsPath(env: Env = process.env): string {
+	return join(configDirectory(env), 'credentials');
 }
 
 // findKey tries JEV_API_KEY, then saved file, then OPENROUTER_API_KEY, which other tools share.

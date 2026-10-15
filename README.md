@@ -1,7 +1,7 @@
 # telegrapher
 
-Code comments written like telegrams: every word pays its way.
-Mechanical English. No articles, no connective filler, no jargon. Even lines.
+Code comments a newcomer can read. Short, plain, clear.
+The default general profile keeps articles and connectors. The named telegram profile retains the terse style.
 
 telegrapher lists each problem comment by file and line, with broken rule and fix.
 Coding agents such as Codex and Claude Code read that list and rewrite comments themselves.
@@ -12,7 +12,7 @@ Checks only your changes. Adds nothing to repositories you contribute to.
 
 ## What your agent receives
 
-A real run with Jev on, against comments written the way people and models often write them:
+Comments written the way people and models often write them, followed by local-only output in the general profile:
 
 ```go
 package client
@@ -33,64 +33,67 @@ var baseDelay = 100 * time.Millisecond
 // Added in the last sprint and not yet enabled in production.
 // Calls fetch in a loop and returns the error.
 func fetchWithRetry(url string) error {
+	return nil
+}
 ```
 
 ```text
-comment-style: 2 of 3 comments need a look ($0.000089)
-
 client.go:8  See https://github.com/cenkalti/backoff
-  name_first: Start with baseDelay, the name this comment documents.
-  link_colon: Link follows text without a colon. Put a colon and a space before the link.
-  status (Jev 89%): describes status or progress, not a lasting fact
-  unexplained_source (Jev 74%): cites a source without saying what idea it takes
+  name_first [error]: Start with baseDelay, the name this comment documents.
+  link_colon [error]: Link follows text without a colon. Put a colon and a space before the link.
+  link_mismatch [error]: Sentence never names source of https://github.com/cenkalti/backoff. End the sentence that names it with this link, or name it here.
 
 client.go:11  Retry the request a few times; the server can still be starting up…
-  wrapped_sentence: 1 sentence(s) continue on the next line. Keep each sentence on one line.
-  semicolon: Semicolon joins two sentences. End the first with a period.
-  name_first: Start with fetchWithRetry, the name this comment documents.
-  doc_path: Points to docs/retries.md. State the reason in the comment instead.
-  link_last: Text follows a link. End the line with its link, and keep linked lines last. Never move the summary line.
-  link_line: Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.
-  too_long: 6 lines of text inside code, above 3. Links do not count.
-  not_telegraphic: Drop where meaning survives: the ×6, a ×4, can ×1, still ×1, so ×1, just ×1.
-  uneven_lines: Line lengths 82, 67, 61, 79, 73, 59, 44 dip before the link. Each line should be at least as long as the one above, so the link line ends widest.
-  status (Jev 89%): describes status or progress, not a lasting fact
+  wrapped_sentence [error]: 1 sentence(s) continue on the next line. Keep each sentence on one line, or break a long sentence after a clause near 100 characters.
+  semicolon [error]: Semicolon joins two sentences. End the first with a period.
+  name_first [error]: Start with fetchWithRetry, the name this comment documents.
+  doc_path [error]: Points to docs/retries.md. State the reason in the comment instead.
+  link_last [error]: Text follows a link. End the line with its link, and keep linked lines last. Never move the summary line.
+  link_line [error]: Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.
+  too_long [warning]: 6 lines of text inside code, above 3. Links do not count. Keep summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.
+  not_telegraphic [warning]: Drop where meaning survives: just ×1.
 
-Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing until nothing is flagged.
+comment-style: 2 of 3 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal); 1 files checked, 0 unsupported, 0 failed, 0 exclusions
+
+Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing to resolve errors and review warnings.
 ```
 
-Agent rewrites, reruns and fixes what is left, until nothing is flagged:
+The agent rewrites and reruns the check. It preserves meaning and reviews advisory findings without treating them as failures:
 
 ```go
 package client
 
 import "time"
 
-// maxTries caps attempts, so outage fails fast instead of hanging caller.
+// maxTries caps attempts, so an outage fails fast instead of hanging the caller.
 const maxTries = 5
 
-// baseDelay is first wait between tries, doubled after each failed try.
-// Doubling idea comes from cenkalti/backoff, widely used Go retry library: https://github.com/cenkalti/backoff
+// baseDelay is the first wait between tries, doubled after each failed try.
+// Doubling follows cenkalti/backoff, a Go retry library: https://github.com/cenkalti/backoff
 var baseDelay = 100 * time.Millisecond
 
-// fetchWithRetry retries request up to maxTries times, since server may be starting.
-// Wait between tries doubles each time, so busy server gets enough room to recover again.
-// Random extra wait, called jitter, keeps many clients from retrying together: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+// fetchWithRetry retries up to maxTries times while the server may be starting.
+// The wait doubles each time, so a busy server gets time to recover.
+// Random extra wait, called jitter, keeps clients from retrying together: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 func fetchWithRetry(url string) error {
+	return nil
+}
 ```
 
 ```text
-comment-style: 0 of 3 comments need a look ($0.000083)
+comment-style: 0 of 3 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal); 1 files checked, 0 unsupported, 0 failed, 0 exclusions
 ```
 
-`maxTries is set to 5.` only repeats its code, yet Jev did not flag it in this run.
+`maxTries is set to 5.` only repeats its code. Jev did not flag it in the original recorded run.
+The local-only examples above make no Jev requests.
 Jev answers with probabilities, so it misses some cases and flags some that are fine.
 Code checks never vary. Treat Jev flags as leads, not verdicts.
 
 ## Before and after
 
 Real rewrites from the [angry-carp](https://github.com/romanornr/angry-carp) MQL engine: 44 comments in one pass.
-Each `-` block is the original comment. Each `+` block is the final version, which passes every check.
+Each `-` block is the original comment. Each `+` block is its recorded telegram-style rewrite.
+These historical examples preserve the original pass, rather than prescribing article deletion or line geometry for general-profile users.
 
 ### Jargon becomes plain words, and the comment starts with its name
 
@@ -108,7 +111,7 @@ Each `-` block is the original comment. Each `+` block is the final version, whi
 Needs Node 24 or newer. Run it straight from GitHub, inside any repository, with nothing to install:
 
 ```sh
-npx github:romanornr/telegrapher comment-style --diff origin/main..HEAD
+npx github:romanornr/telegrapher comment-style --local-only --diff origin/main..HEAD
 ```
 
 Or install the `telegrapher` command once:
@@ -129,9 +132,9 @@ Paste this into Claude Code, Codex or another agent with a shell, inside the pro
 
 ```text
 Check the code comments in my changes with telegrapher.
-1. From this project, run: npx github:romanornr/telegrapher comment-style --diff origin/main..HEAD
-2. Rewrite each flagged comment to pass the rule it names. Keep the meaning, and never make it cryptic.
-3. Run it again until nothing is flagged. Show me the comment diff before committing.
+1. From this project, run: npx github:romanornr/telegrapher comment-style --local-only --diff origin/main..HEAD
+2. Fix error-level findings and review warnings. Keep the meaning, and never make it cryptic.
+3. Rerun until no errors remain. Show me the comment diff and remaining advice before committing.
 Never ask me for the Jev key or read it. If it is not set, run code checks only.
 ```
 
@@ -158,14 +161,15 @@ It never accepts a key as an argument, because arguments end up in shell history
 telegrapher looks for a key in this order and names the one it uses, never the key itself:
 
 1. `JEV_API_KEY`, to override for one run or in CI.
-2. The saved key in `~/.config/telegrapher/credentials`, readable only by you.
+2. The saved key in `~/.config/telegrapher/credentials`, or under an absolute `XDG_CONFIG_HOME`, readable only by you.
 3. `OPENROUTER_API_KEY`, which other tools share, so it never replaces a key you saved for telegrapher.
 
 ### Keep the key from Claude Code
 
 An agent runs as you, so it can read the saved key like any of your files.
 Claude Code's sandbox can mask the file: commands see a placeholder, and the real key only reaches Jev's hosts.
-Add this to `~/.claude/settings.json`, since Claude Code ignores masks in a project's settings:
+Add this to `~/.claude/settings.json`, since Claude Code ignores masks in a project's settings.
+If you use `XDG_CONFIG_HOME`, replace the path below with your credentials path:
 
 ```json
 {
@@ -188,23 +192,25 @@ Add this to `~/.claude/settings.json`, since Claude Code ignores masks in a proj
 }
 ```
 
+Credential file masking requires Claude Code v2.1.221 or later.
 On Linux and WSL2, Jev checks keep working inside the sandbox.
 On macOS, Claude Code blocks the file instead, so only code checks run there.
 See [Claude Code's sandbox docs](https://code.claude.com/docs/en/sandboxing#mask-credential-files).
 
 ## What it checks
 
-It reads comments in Go, TypeScript and JavaScript. It flags. You rewrite.
+It reads comments in Go, TypeScript, TSX, JavaScript and Rust. It flags. You rewrite.
+Rust documentation and safety arguments have the conservative scopes described below.
 
 Code checks run locally, free, with no account or key:
 
-- `wrapped_sentence`: a sentence continues on the next line.
+- `wrapped_sentence`: a sentence continues on the next line, except a comma clause break from 80 characters near the 100-character target.
 - `semicolon`: a semicolon joins two sentences. Two sentences may share a line when that evens out the shape.
 - `crowded_line`: three or more sentences share one line.
-- `uneven_lines`: without a link, line lengths zigzag, a line sticking out past its neighbours. Lines may stay within 15%, only grow or only shrink. With a link, each line, measured with its link, must be at least as long as the line above, so the link line ends widest.
-- `too_long`: more than 3 lines of text inside code. Links do not count. Keep the summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.
+- `uneven_lines`: an advisory finding for uneven prose lines without links. The staircase toward a source link is removed in both profiles.
+- `too_long`: an advisory finding above three prose lines inside code. Documentation, overviews and safety arguments are exempt. Preserve needed facts and their attachment.
 - `too_wide`: a line holds more than 120 characters of text. Links do not count. Split it into two sentences on separate lines, or cut words.
-- `not_telegraphic`: any article or connective word that can usually go: a, an, the, can, own, so, even, still, just, really, basically, actually, simply, very, quite, and the phrases "these are", "at once" and "for example". It names them, and you decide where meaning survives.
+- `not_telegraphic`: general flags filler such as just, simply, really, very, quite, basically and actually as warning-level suggestions. Telegram makes these errors and also flags a, an, the, can, own, so, even, still, these are, at once and for example. Decide where meaning survives.
 - `doc_path`: points to an internal document instead of stating the reason.
 - `name_first`: a Go comment does not start with the name it documents.
 - `link_last`: text follows a link. Each link ends its line, and linked lines come last. Never move the summary line.
@@ -212,25 +218,25 @@ Code checks run locally, free, with no account or key:
 - `link_space`: a colon touches a link. Put a space between them.
 - `link_mismatch`: a link ends a sentence that never names its source (links in code spans or quotes are examples and skip link checks), as when NIST's link ends a sentence about NICT. The package folder counts as named, so okx.com docs need no name inside `exchanges/okx`.
 - `link_count`: two links share one line. End each sentence a link supports with its own link, on the last lines.
-- `link_line`: a link on its own line needs one or two lines of text above it, and the comment stays within three lines. Otherwise end the last line of text with a colon, then the link.
+- `link_line`: a bare link needs explanatory prose. An ordinary bare link stays under one or two prose lines. A pinned provenance permalink is metadata and does not consume that line budget.
 
 Rewrites are compared with the committed comment above the same code: `HEAD` for files, drafts and staged changes, or the start of `--diff`.
 A draft passed with `--stdin` pairs only when its code lines match one committed comment. Otherwise telegrapher says rewrite checks were skipped.
 
 - `link_added`: a rewrite adds a link, or repeats one, that the committed comment did not have.
 - `link_dropped`: a rewrite drops a link the committed comment had. A link added elsewhere in the same change, in another comment or in docs, counts as moved, not dropped.
-- `grew`: a rewrite has more lines than the committed comment, blank lines included. Only exception: one extra line for each link that shared a line, so it gets its own.
+- `grew`: an ordinary rewrite has more physical lines than the committed comment. Splitting links and pinned provenance metadata are exempt. Rustdoc and safety arguments have no growth cap.
 - `summary_moved`: a later line keeps more of the committed first line's words than the new first line does, even after rewording.
-- `comment_deleted`: in `--diff` and staged changes, the change removes a comment while its code stays. A new comment a few lines above the old code counts as moved and is checked as a rewrite. With Jev, deleting a comment that only repeats its code is fine, except a Go doc comment on an exported name or a comment with a link.
+- `comment_deleted`: in diff and staged modes, a comment was removed while its code remains. A nearby replacement can pair as a rewrite, including promotion to documentation. Jev cannot clear this finding and sends no questions for deleted comments.
 
 Judgment checks run only with a Jev key, from TypeSafe or OpenRouter.
 See [Set up a Jev key](#set-up-a-jev-key).
 [Jev](https://typesafe.ai) is TypeSafe's decision model. It answers fixed questions, never writes text.
 Each answer is yes or no with a probability, so telegrapher flags only answers at 65% or above, and jargon at 90% or above.
-Jev scored invented words 91-95% and established technical terms 79-83%, so a lower jargon threshold flags terms such as kiss-o'-death.
 It is a separate model from whatever agent wrote the comment, so it does not grade its own work.
 Jev is a paid service, used directly from TypeSafe or through OpenRouter, and costs a fraction of a cent per comment.
-Only the comments, files and diff you pass are sent, so never pass secrets or private code.
+Jev receives selected comments, file names, following code, Go package documentation and previous comments for rewrites. Never pass secrets or private code.
+Jev findings are advisory and never clear local findings. Authentication, quota or rate-limit failure stops later batches and reports HTTP status and a service code without printing response text.
 
 - `jargon`: in-house shorthand or vague wording where plain words would do. Established technical terms, such as RFC 8252 or a protocol's own terms, are fine.
 - `restates_code`: only repeats what the code does.
@@ -238,9 +244,85 @@ Only the comments, files and diff you pass are sent, so never pass secrets or pr
 - `unexplained_source`: cites a source without saying which idea it takes.
 - `meaning_lost`: a rewrite drops or changes a fact the committed comment stated. Asked only about rewritten comments.
 
+## Languages and coverage
+
+The parser supports Go, Rust, TypeScript, TSX, and JavaScript, including `.go`, `.rs`, `.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs`. Vendored WASM grammars require no native compiler. Strings and template literal text are excluded from comment extraction.
+
+Every selected file receives one of these outcomes:
+
+| Outcome | Meaning |
+| --- | --- |
+| `checked` | Comments were checked, with unrelated syntax recovery reported as warnings. The result includes the number of selected comments and any excluded comment ranges. |
+| `excluded` | The file was deliberately skipped, with a reason such as deletion or generated output. |
+| `unsupported` | No grammar supports the extension. Explicitly requested unsupported files fail the run. Unrelated files in a mixed diff are recorded skips. |
+| `failed` | Reading, grammar loading, comment-overlapping syntax recovery, or comparison failed. Available findings from other files remain visible. |
+
+An empty diff or a run containing only unsupported files explicitly reports zero files checked. Generated paths and header markers, licence notices, tool directives, empty comments, and comments after code on the same line are excluded with reasons. Rust attribute-based documentation is reported as an unsupported documentation form within the file. Lint attributes and their reason strings are syntax and receive no prose checks.
+
+Diff input disables colour, external diff commands, and text conversion. Explicit prefixes and NUL-separated enumeration preserve paths despite Git prefix settings, spaces, tabs, quotes, newlines, Unicode, renames, and deletions. Diff paths are relative to the repository root even when you run from a subdirectory.
+
+
+## Profiles and configuration
+
+telegrapher searches upward from the working directory for `.telegrapher.toml`. If none exists, it reads `~/.config/telegrapher/config.toml`, or `telegrapher/config.toml` under an absolute `XDG_CONFIG_HOME`. Relative XDG paths are ignored, as they are for credentials. The first file wins as a whole. Project and home settings do not merge. Without either file, the profile is `general`.
+
+For a personal telegram default, put this in the home config:
+
+```toml
+profile = "telegram"
+```
+
+A project can select a profile and change individual local rule levels:
+
+```toml
+profile = "general"
+
+[rules]
+uneven_lines = "off"
+too_long = "warning"
+semicolon = "error"
+```
+
+Levels are `off`, `warning`, and `error`. Unknown settings, profiles, rules, or levels fail visibly. `--config <path>` selects one file, `--no-config` uses built-in settings, and `--profile general|telegram` overrides the selected profile.
+
+
+## Rust documentation and safety
+
+Rust `///`, `//!`, `/**`, and `/*!` documentation stays separate from ordinary comments. Blank doc lines retain paragraph boundaries. Nested Rust blocks are parsed as one enclosing comment. `////`, `/***`, and `/**/` remain ordinary comments.
+
+Syntax errors outside comment ranges produce checked coverage with a parse warning, including incomplete declarations passed with stdin. Errors overlapping comments fail visibly.
+
+Rustdoc uses Markdown with GFM extensions. Only prose text ranges receive conservative semicolon and filler advice, at warning level by default. Headings, fenced and indented code, HTML, tables, definitions, footnotes, links, and doctest controls are protected. Documentation has no telegram article checks, geometry, doc-pointer ban, or growth cap. Rewrites preserve links and existing structured content, and still reject invented URLs. Rustdoc still owns link resolution and doctest validity.
+
+Only a line-leading `SAFETY:` label in Rust selects safety scope. `Thread safety:` prose and labels in other languages keep ordinary checks.
+
+`SAFETY:` arguments receive advisory semicolon checks without word-deletion, length, or shape pressure. Safety prose stays advisory even when a rule is configured as error-level; preservation errors still fail. Rewrites retain the label and its position and warn that all previous preconditions need review. Keep the argument attached to the unsafe operation. telegrapher cannot prove that a rewritten safety argument is sound. Jev never suggests deleting rustdoc or safety arguments because they restate code.
+
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The run completed without local error-level findings. Warnings and Jev advice do not block. |
+| `1` | Local error-level findings exist. |
+| `2` | Usage, configuration, Git, file, parser, or a requested Jev stage failed. |
+
+`--exit-zero` changes findings exit `1` to `0`. It keeps failures visible and preserves exit `2`. A Jev failure prints available local findings before reporting the failure. JSON includes both findings and failures in one record.
+
+
+## Provenance and command output
+
+An origin note names the source project and function in prose. Its last line is a file permalink at a full fixed commit, alone or after a colon. Pinned GitHub file permalinks without line anchors count as metadata for prose size and rewrite growth. An exact old owner/repository@commit plus file reference can migrate to its corresponding permalink without an invented-link error. Ordinary and protected scopes still retain link preservation.
+
+`--local-only` skips key lookup and Jev. `--preview` prints a prepared request without sending it. `--json` retains every file outcome, excluded range, parse warning and finding. Source offsets use zero-based JavaScript UTF-16 units; lines start at one. Terminal output puts findings first, then a compact coverage count. Only unsupported files, failed files and parse warnings get file-level detail.
+
+The command prints failures after available local findings. `--exit-zero` suppresses findings exit 1 but preserves failure exit 2. Without a key, ordinary invocations still run local checks.
+
 ## More examples
 
-### Uneven lines become even, one sentence per line
+These are recorded telegram-style examples. General-profile users keep grammatical words and treat line shape and shortness as advice.
+
+### Optional line balancing and one sentence per line
 
 ```diff
  
@@ -276,7 +358,7 @@ Only the comments, files and diff you pass are sent, so never pass secrets or pr
 +// That lets false left side of "and" skip right side, as MQL requires: https://docs.sublime.security/docs/null-handling
 ```
 
-### Articles and filler drop, meaning stays
+### Telegram profile: articles and filler drop where meaning survives
 
 ```diff
  
@@ -801,12 +883,25 @@ Every comment-only change in the engine, original against final, as `git diff` s
 ## Rules
 
 1. Newcomer first: everyday words, then why, then any technical term once.
-2. One sentence per line, unless two short ones on one line even out the shape. No semicolons.
-3. Lines of similar length. A short last line reads as an afterthought.
-4. Telegraphic: drop articles and filler where meaning survives. Terse, not cryptic.
+2. Prefer one sentence per line, with clause breaks near 100 characters. No prose semicolons in ordinary comments.
+3. Line balance and a two-to-three-line target are advisory. No staircase toward a link.
+4. General keeps articles and connectors. Filler is advisory in general and error-level in telegram.
 5. Durable facts only. Rollout status belongs in the PR.
-6. Go comments start with the name they document. `name_first` checks every declaration, and revive's `exported` rule covers exported names.
+6. Go declaration comments start with the name they document.
+7. Preserve source links, documentation structure, safety labels and preconditions.
+
+## Develop
+
+```sh
+npm install
+npm test
+npm run check:types
+npm run build
+```
+
+The build emits `dist/`; the package includes `vendor/grammars/`. See [the grammar manifest](vendor/grammars/manifest.json) for versions, commits, checksums, and licences, and [the update procedure](vendor/grammars/README.md) before changing an asset.
+
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and the third-party licences under `vendor/`.

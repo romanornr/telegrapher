@@ -4,3 +4,13 @@ Copyright 2026 romanornr
 src/openrouter-login.ts adapts code from pi (https://github.com/earendil-works/pi),
 Copyright (c) 2025 Mario Zechner, MIT License, and from gemini-cli
 (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, Apache License 2.0.
+
+src/comment-style/extract.ts adapts the language table and grouping pattern from
+Vale, Copyright (c) 2016 Joseph Kato, MIT License.
+src/comment-style/diff.ts adapts reviewdog's unquoteCStyle and parseFileHeader, Copyright (c) 2016
+haya14busa, MIT License. src/git.ts adapts golangci revgrep's gitDiff,
+Apache License 2.0. Upstream licence texts are in vendor/licenses/.
+
+Official Tree-sitter WASM grammars are distributed unchanged under the MIT
+License. vendor/grammars/manifest.json records their versions and source commits;
+the adjacent licence files contain the upstream copyright notices.

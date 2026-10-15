@@ -1,9 +1,13 @@
-// Finds comments in TypeScript and Go source, and checks style rules plain code can measure.
-// Judgments code cannot make, such as jargon or restated code, go to Jev in check.ts.
-
-export type CommentBlock = { path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc'; overview: boolean; goName: string | null; text: string[]; size: number; codeAfter: string; codeKey: string[]; folder: string };
-export type Issue = { rule: 'wrapped_sentence' | 'crowded_line' | 'semicolon' | 'doc_path' | 'too_long' | 'not_telegraphic' | 'name_first' | 'uneven_lines' | 'link_line' | 'link_last' | 'link_colon' | 'link_space' | 'link_count' | 'link_mismatch' | 'too_wide' | 'link_added' | 'link_dropped' | 'grew' | 'summary_moved' | 'comment_deleted'; detail: string };
-
+export type CommentBlock = {
+	path: string; line: number; endLine: number; kind: 'line' | 'block' | 'doc' | 'doc_outer' | 'doc_inner' | 'trailing';
+	overview: boolean; goName: string | null; text: string[]; size: number; codeAfter: string; codeKey: string[]; folder: string;
+	raw: string; startIndex: number; endIndex: number; sourceMap: number[]; attachment: string;
+	rustdoc: boolean; safety: boolean; prose: string[]; proseRanges: { start: number; end: number }[]; protectedText: string[];
+};
+export const ruleNames = ['wrapped_sentence', 'crowded_line', 'semicolon', 'doc_path', 'too_long', 'not_telegraphic', 'name_first', 'uneven_lines', 'link_line', 'link_last', 'link_colon', 'link_space', 'link_count', 'link_mismatch', 'too_wide', 'link_added', 'link_dropped', 'grew', 'summary_moved', 'comment_deleted', 'protected_changed', 'safety_rewrite'] as const;
+export type Issue = { rule: (typeof ruleNames)[number]; detail: string; severity?: 'error' | 'warning' };
+export type LeveledIssue = Issue & { severity: 'error' | 'warning' };
+export type Profile = 'general' | 'telegram';
 const maxInlineLines = 3;
 const maxLineWidth = 120;
 const minLineRatio = 0.85;
@@ -12,63 +16,7 @@ const linkStart = /<?https?:\/\//;
 const hasLink = /https?:\/\/\S+/;
 const hasLinks = /https?:\/\/\S+/g;
 const endsInLink = /https?:\/\/\S+$/;
-
-// Name of a Go function, method, type, constant or variable declared on this line. Groups have no single name.
-const goDeclaration = /^(?:func (?:\([^)]*\) )?|type |const |var )([\p{L}_][\p{L}\p{N}_]*)/u;
 const listItem = /^(?:[-*] |\d+\. )/;
-
-// Tool directives and licence notices follow their own required formats.
-const exempt = /^(?:go:|nolint|oxlint|eslint|@ts-|#region|#endregion)|Licensed under|SPDX-License-Identifier/;
-
-function stripMarkers(line: string, kind: CommentBlock['kind']): string {
-	if (kind === 'line') return line.trim().replace(/^\/\/+\s?/, '').trimEnd();
-
-	return line.trim().replace(/^\/\*\*?\s?/, '').replace(/\*\/$/, '').replace(/^\*(?!\/)\s?/, '').trimEnd();
-}
-
-// A comment before any code, other than Go's package clause, is the file's overview.
-export function findComments(path: string, content: string): CommentBlock[] {
-	const lines = content.split('\n');
-	const blocks: CommentBlock[] = [];
-	let seenCode = false;
-	let i = 0;
-
-	while (i < lines.length) {
-		const trimmed = lines[i]?.trim() ?? '';
-		const start = i;
-		let kind: CommentBlock['kind'];
-
-		if (trimmed.startsWith('//')) {
-			kind = 'line';
-
-			while (i < lines.length && (lines[i]?.trim() ?? '').startsWith('//')) i++;
-		} else if (trimmed.startsWith('/*')) {
-			kind = trimmed.startsWith('/**') ? 'doc' : 'block';
-
-			while (i < lines.length && !(lines[i] ?? '').includes('*/')) i++;
-
-			i++;
-		} else {
-			if (trimmed !== '' && !trimmed.startsWith('#!') && !trimmed.startsWith('package ')) seenCode = true;
-			i++;
-			continue;
-		}
-
-		const text = lines.slice(start, i).map(line => stripMarkers(line, kind));
-
-		while (text[0] === '') text.shift();
-
-		while (text.at(-1) === '') text.pop();
-
-		if (text.length === 0 || exempt.test(text.join('\n'))) continue;
-
-		const codeAfter = lines.slice(i).filter(line => line.trim() !== '').slice(0, 12).join('\n');
-		const goName = path.endsWith('.go') ? goDeclaration.exec(lines[i] ?? '')?.[1] ?? null : null;
-		blocks.push({ path, line: start + 1, endLine: i, kind, overview: !seenCode, goName, text, size: i - start, codeAfter, codeKey: codeKey(lines.slice(i)), folder: path.split('/').at(-2) ?? '' });
-	}
-
-	return blocks;
-}
 
 // codeKey is code below comment without blanks, comments or any spacing: pairing survives reformatting and comment edits.
 // Up to 40 lines, letting repeated test setups differ somewhere.
@@ -109,18 +57,19 @@ function proseLines(text: string[]): string[] {
 // Word list cannot tell when one is needed, such as "the first link", and names them for people.
 // "for" stays out, since "wait for reply" needs it.
 const droppable = new Set(['a', 'an', 'the', 'just', 'really', 'basically', 'actually', 'simply', 'very', 'quite', 'still', 'can', 'own', 'so', 'even']);
+const filler = new Set(['just', 'really', 'basically', 'actually', 'simply', 'very', 'quite']);
 const droppablePhrases = ['these are', 'at once', 'for example'];
 
-export function codeIssues(block: CommentBlock): Issue[] {
-	const prose = proseLines(block.text);
+export function codeIssues(block: CommentBlock, profile: Profile = 'general'): LeveledIssue[] {
+	const prose = block.rustdoc ? block.prose : proseLines(block.text);
 	const issues: Issue[] = [];
 
 	const wrapped = prose.filter((line, index) => {
 		const next = prose[index + 1];
 
-		return next !== undefined && !/[.!?:]["')`]*$/.test(line) && !endsInLink.test(line) && /^[a-z]/.test(next) && !listItem.test(next);
+		return next !== undefined && !/[.!?:]["')`]*$/.test(line) && !(line.length >= 80 && /,$/.test(line)) && !endsInLink.test(line) && /^[a-z]/.test(next) && !listItem.test(next);
 	});
-	if (wrapped.length > 0) issues.push({ rule: 'wrapped_sentence', detail: `${wrapped.length} sentence(s) continue on the next line. Keep each sentence on one line.` });
+	if (wrapped.length > 0) issues.push({ rule: 'wrapped_sentence', detail: `${wrapped.length} sentence(s) continue on the next line. Keep each sentence on one line, or break a long sentence after a clause near 100 characters.` });
 
 	// Two sentences may share line when that evens out shape, but semicolon hides where first one ends.
 	if (prose.some(line => /;/.test(line.replace(/`[^`]*`|"[^"]*"|'[^'\s]'/g, '').replace(hasLinks, '')))) {
@@ -188,7 +137,7 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	// Link with no text above it gives no reason to follow it.
 	if (lines.some(line => urlOnly.test(line))) {
 		if (prose.length === 0) issues.push({ rule: 'link_line', detail: 'Link stands alone without text. Say what the source supports, then end that line with a colon and the link.' });
-		else if (prose.length > 2 || (block.kind === 'line' ? block.size : block.text.length) > 3) issues.push({ rule: 'link_line', detail: 'Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.' });
+		else if (lines.some(line => urlOnly.test(line) && pinnedSource(line) === undefined) && (prose.length > 2 || (block.kind === 'line' ? block.size : block.text.length) > 3)) issues.push({ rule: 'link_line', detail: 'Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.' });
 	}
 
 	if (!block.overview && block.kind !== 'doc' && prose.length > maxInlineLines) issues.push({ rule: 'too_long', detail: `${prose.length} lines of text inside code, above ${maxInlineLines}. Links do not count. Keep summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.` });
@@ -202,14 +151,14 @@ export function codeIssues(block: CommentBlock): Issue[] {
 	let plain = prose.join(' ').replace(/`[^`]*`|"[^"]*"/g, ' ').replace(hasLinks, ' ').replace(/[\p{L}\p{N}']+(?:-[\p{L}\p{N}']+)+/gu, ' ').toLowerCase().replace(/\s+/g, ' ');
 	const counts = new Map<string, number>();
 
-	for (const phrase of droppablePhrases) {
+	for (const phrase of profile === 'telegram' && !block.rustdoc ? droppablePhrases : []) {
 		const pattern = new RegExp(`\\b${phrase}\\b`, 'g');
 		const found = plain.match(pattern)?.length ?? 0;
 		if (found > 0) counts.set(phrase, found);
 		plain = plain.replace(pattern, ' ');
 	}
 
-	for (const word of plain.match(/[a-z]+(?:'[a-z]+)?/g) ?? []) if (droppable.has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
+	for (const word of plain.match(/[a-z]+(?:'[a-z]+)?/g) ?? []) if ((profile === 'telegram' && !block.rustdoc ? droppable : filler).has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
 
 	if (counts.size > 0) {
 		issues.push({ rule: 'not_telegraphic', detail: `Drop where meaning survives: ${[...counts].map(([word, count]) => `${word} ×${count}`).join(', ')}.` });
@@ -217,13 +166,7 @@ export function codeIssues(block: CommentBlock): Issue[] {
 
 	const visible = block.text.map(line => line.trim()).filter(line => line !== '');
 	if (visible.length >= 2 && !block.text.some(line => listItem.test(line)) && fenceLines(block.text).length === 0) {
-		if (visible.some(line => hasLink.test(line))) {
-			// Link line is widest, so lines above it must widen toward it, measured as seen, link included.
-			const widths = visible.map(line => line.length);
-			if (widths.some((width, index) => index > 0 && width < (widths[index - 1] ?? 0))) {
-				issues.push({ rule: 'uneven_lines', detail: `Line lengths ${widths.join(', ')} dip before the link. Each line should be at least as long as the one above, so the link line ends widest.` });
-			}
-		} else {
+		if (!visible.some(line => hasLink.test(line))) {
 			// Lines may stay level, only grow or only shrink.
 			// Line sticking out past its neighbours, up then down or down then up, reads as ragged.
 			const lengths = prose.map(line => line.length);
@@ -235,62 +178,11 @@ export function codeIssues(block: CommentBlock): Issue[] {
 		}
 	}
 
-	return issues;
-}
-
-// Maps each file in a zero-context diff to the line numbers its new version adds or changes.
-export function changedLines(diff: string): Map<string, Set<number>> {
-	const changed = new Map<string, Set<number>>();
-	let current: Set<number> | undefined;
-
-	for (const line of diff.split('\n')) {
-		const file = /^\+\+\+ b\/(.+)$/.exec(line);
-
-		if (file?.[1] !== undefined) {
-			current = new Set();
-			changed.set(file[1], current);
-			continue;
-		}
-
-		if (line.startsWith('+++ ')) current = undefined;
-
-		const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
-		if (hunk === null || current === undefined) continue;
-
-		const start = Number(hunk[1]);
-		const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-
-		// Pure deletion sits between new lines start and start + 1, and comment it cut into touches one of them.
-		if (count === 0) for (const line of [start, start + 1]) if (line > 0) current.add(line);
-
-		for (let offset = 0; offset < count; offset++) current.add(start + offset);
-	}
-
-	return changed;
-}
-
-// Maps each file in zero-context diff to line numbers its old version removes or replaces.
-export function removedLines(diff: string): Map<string, Set<number>> {
-	const removed = new Map<string, Set<number>>();
-	let current: Set<number> | undefined;
-
-	for (const line of diff.split('\n')) {
-		const file = /^\+\+\+ b\/(.+)$/.exec(line);
-		if (file?.[1] !== undefined) {
-			current = new Set();
-			removed.set(file[1], current);
-			continue;
-		}
-		if (line.startsWith('+++ ')) current = undefined;
-
-		const hunk = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(line);
-		if (hunk === null || current === undefined) continue;
-		const start = Number(hunk[1]);
-		const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-		for (let offset = 0; offset < count; offset++) current.add(start + offset);
-	}
-
-	return removed;
+	return issues.filter(issue => {
+		if (block.safety) return issue.rule === 'semicolon';
+		if (block.rustdoc) return issue.rule === 'semicolon' || issue.rule === 'not_telegraphic';
+		return true;
+	}).map(issue => ({ ...issue, severity: block.safety || block.rustdoc || issue.rule === 'not_telegraphic' && profile === 'general' || issue.rule === 'too_long' || issue.rule === 'uneven_lines' ? 'warning' : 'error' }));
 }
 
 // URL parts every link shares, which name no source.
@@ -374,9 +266,10 @@ function overlap(summary: Set<string>, line: string): number {
 export function rewriteIssues(text: string[], previous: string[], moved: ReadonlySet<string> = new Set(), sizes = { now: text.length, before: previous.length }): Issue[] {
 	const issues: Issue[] = [];
 	const now = linksIn(text);
+	const metadata = (lines: string[]) => lines.filter(line => pinnedSource(line) !== undefined && urlOnly.test(line.trim())).length;
 	const before = linksIn(previous);
 
-	if ([...now].some(([link, count]) => count > (before.get(link) ?? 0))) issues.push({ rule: 'link_added', detail: 'Rewrite adds a link the previous comment did not have. Keep only its links.' });
+	if ([...now].some(([link, count]) => count > (before.get(link) ?? 0) && !preservedSource(link, previous))) issues.push({ rule: 'link_added', detail: 'Rewrite adds a link the previous comment did not have. Keep only its links.' });
 	if ([...before].some(([link, count]) => count > (now.get(link) ?? 0) && !moved.has(link))) {
 		issues.push({ rule: 'link_dropped', detail: 'Rewrite drops a link the previous comment had. Keep it at the end of the sentence it supports, or move it with its fact next to the code it explains or into docs, in the same change.' });
 	}
@@ -385,7 +278,7 @@ export function rewriteIssues(text: string[], previous: string[], moved: Readonl
 	// Exception holds only once links no longer share lines.
 	const shared = (lines: string[]) => lines.reduce((extra, line) => extra + Math.max(0, (line.match(hasLinks) ?? []).length - 1), 0);
 	const split = shared(text) === 0 ? shared(previous) : 0;
-	if (sizes.now > sizes.before + split) {
+	if (sizes.now - metadata(text) > sizes.before - metadata(previous) + split) {
 		issues.push({ rule: 'grew', detail: `Rewrite has ${sizes.now} lines, previous comment had ${sizes.before}. Never add lines${split > 0 ? `, except ${split} to give each link its own line` : ''}.` });
 	}
 
@@ -399,4 +292,41 @@ export function rewriteIssues(text: string[], previous: string[], moved: Readonl
 	if (position > 0) issues.push({ rule: 'summary_moved', detail: `First line of the previous comment is now line ${position + 1}. Keep it first, and move links or other lines instead.` });
 
 	return issues;
+}
+
+export function pinnedSource(text: string): { owner: string; repo: string; commit: string; file: string } | undefined {
+	const match = /https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/blob\/([0-9a-f]{40})\/([^#\s>]+)/.exec(text);
+	if (!match || /#/.test(text.slice(match.index + match[0].length))) return undefined;
+	return { owner: match[1], repo: match[2], commit: match[3], file: match[4] };
+}
+
+function preservedSource(link: string, previous: string[]): boolean {
+	const source = pinnedSource(link);
+	const old = previous.join(' ');
+	return source !== undefined && old.includes(`${source.owner}/${source.repo}@${source.commit}`) && old.includes(source.file);
+}
+
+export function scopedRewriteIssues(block: CommentBlock, previous: CommentBlock, moved: ReadonlySet<string>): Issue[] {
+	let issues = rewriteIssues(block.text, previous.text, moved, { now: block.size, before: previous.size });
+	if (block.rustdoc || block.safety) issues = issues.filter(issue => issue.rule !== 'grew');
+	let offset = 0;
+	for (const protectedText of previous.protectedText) {
+		const at = block.text.join('\n').indexOf(protectedText, offset);
+		if (at < 0) { issues.push({ rule: 'protected_changed', detail: 'Rewrite changes protected documentation markup, code or link syntax. Preserve it.', severity: 'error' }); break; }
+		offset = at + protectedText.length;
+	}
+	const previousLabel = previous.safety ? safetyLabel(previous.text) : undefined;
+	const labelLine = previousLabel?.line ?? -1;
+	const label = previousLabel?.label;
+	if (label !== undefined && !block.text[labelLine]?.includes(label)) issues.push({ rule: 'protected_changed', detail: 'Preserve the SAFETY label and its position in the argument.', severity: 'error' });
+	if (previous.safety && (block.text.join('\n') !== previous.text.join('\n') || !block.safety)) issues.push({ rule: 'safety_rewrite', detail: 'Review this safety argument against every previous precondition and preserve its label and attachment.', severity: 'warning' });
+	return issues;
+}
+
+export function safetyLabel(text: string[]): { line: number; label: string } | undefined {
+	for (const [line, value] of text.entries()) {
+		const label = /^\s*(SAFETY:)/i.exec(value)?.[1];
+		if (label !== undefined) return { line, label };
+	}
+	return undefined;
 }

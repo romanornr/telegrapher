@@ -1,19 +1,21 @@
+import { configuredIssues, loadConfiguration, type Configuration, type ConfiguredIssue } from './config.ts';
+import { parseDiff, parseFileHeader } from './diff.ts';
+import { findComments, extractComments, supported, type Exclusion, type ParseWarning } from './extract.ts';
 import { readFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NoulQuestion } from '@typesafe-ai/sdk';
-import { bareLinks, changedLines, removedLines, codeIssues, codeKey, findComments, rewriteIssues, type CommentBlock, type Issue } from './comments.ts';
-import { checkRange, git } from '../git.ts';
-import { costOf, judgeOnly, type Ask, type Report, type State } from '../request.ts';
+import { bareLinks, codeIssues, codeKey, scopedRewriteIssues, type CommentBlock } from './comments.ts';
+import { checkRange, git, gitDiff, diffFiles } from '../git.ts';
+import { costOf, judgeOnly, jevFailure, type Ask, type Report, type State } from '../request.ts';
 
 // Bump the version whenever a question changes, so saved runs stay comparable.
-const pack = 'comment-style/2';
+const pack = 'comment-style/3';
 
 // Well above 0.5, so a near coin-flip answer does not count as a finding.
 const flagProbability = 0.65;
 // Jev scored invented words 91-95% and established terms such as kiss-o'-death 79-83%, steady across runs.
 const jargonProbability = 0.9;
 const concurrency = 8;
-const sourceFiles = ['*.ts', '*.go', '*.mjs'];
 
 // Generated parsers and bundled output follow their generators' formats.
 const generated = /(?:^|\/)(?:dist|generated|internal\/syntax)\//;
@@ -36,7 +38,7 @@ const labels: Record<(typeof questionNames)[number], string> = {
 
 // Each asks whether a rule is broken, so a high probability of yes is a flag.
 export const questions: Record<(typeof questionNames)[number], NoulQuestion & { instructions: string }> = {
-	jargon: question('Does `state.comment` use jargon: in-house shorthand, slang, or a vague or invented term where plain words would say the same? Established technical terms with one fixed meaning in their field, such as protocol names, standard numbers like RFC 8252, and standard terms of that field, do not count. Terms named in `state.code_after` or explained in `state.package_doc` do not count either.'),
+	jargon: question('Does `state.comment` use jargon: in-house shorthand, slang, or a vague or invented term where plain words would say the same? Words inside URLs and code spans do not count. Established technical terms with one fixed meaning in their field, such as protocol names, standard numbers like RFC 8252, and standard terms of that field, do not count. Terms named in `state.code_after` or explained in `state.package_doc` do not count either.'),
 	restates_code: question('Does `state.comment` only describe what `state.code_after` visibly does, adding no reason, constraint or consequence?'),
 	status: question('Does `state.comment` describe project status or progress, such as planned work, recent changes or rollout state, instead of a fact that stays true?'),
 	unexplained_source: question('Does `state.comment` cite an outside source, such as a link, paper or project, without stating which idea it takes from that source?'),
@@ -44,8 +46,14 @@ export const questions: Record<(typeof questionNames)[number], NoulQuestion & { 
 };
 
 // deleted marks committed comment removed while its code stays, with text holding what was removed.
-export type CheckedComment = CommentBlock & { issues: Issue[]; packageDoc: string; previous: string[] | null; deleted?: true };
-export type CommentStyleRequest = { pack: string; comments: CheckedComment[]; notes?: string[] };
+export type CheckedComment = CommentBlock & { issues: ConfiguredIssue[]; packageDoc: string; previous: string[] | null; previousProse?: string[]; deleted?: true };
+export type Coverage = { path: string } & (
+	| { status: 'checked'; comments: number; exclusions: Exclusion[]; warnings: ParseWarning[] }
+	| { status: 'excluded'; reason: string }
+	| { status: 'unsupported'; reason: string; explicit: boolean }
+	| { status: 'failed'; reason: string }
+);
+export type CommentStyleRequest = { pack: string; comments: CheckedComment[]; notes?: string[]; coverage?: Coverage[]; configuration?: { profile: string; source: string | null } };
 
 // flat joins code lines without line breaks or trailing commas formatters add on rewrap: rewrapped code pairs too.
 function flat(lines: string[]): string {
@@ -110,8 +118,11 @@ function readBase(revision: string, path: string): string | undefined {
 
 // Whole files check every comment, and otherwise only comments touching changed lines, staged by default.
 // Draft is checked as if it sat inside code of named file, so agents can test rewrite before editing.
-export function readCommentStyle(options: { files: string[]; diff?: string; draft?: string }): CommentStyleRequest {
+export function readCommentStyle(options: { files: string[]; diff?: string; draft?: string; configuration?: Configuration }): CommentStyleRequest {
 	const blocks: CommentBlock[] = [];
+	const coverage: Coverage[] = [];
+	const configuration = options.configuration ?? loadConfiguration({ noConfig: true });
+	const previousPaths = new Map<string, string>();
 
 	// Git revision the files are read from: undefined for the working tree, '' for the staged index.
 	let target: string | undefined;
@@ -124,31 +135,51 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	// Folder named on command line, as given relative or absolute, counts as named in link checks.
 	const inFolder = (block: CommentBlock): CommentBlock => ({ ...block, folder: basename(dirname(resolve(block.path))) });
 
+	const collect = (path: string, read: () => string, explicit: boolean, lines?: Set<number>) => {
+		if (!supported(path)) { coverage.push({ path, status: 'unsupported', reason: 'No grammar for this file type', explicit }); return; }
+		if (generated.test(path)) { coverage.push({ path, status: 'excluded', reason: 'generated output path' }); return; }
+		try {
+			const content = read();
+			if (content.includes('\0')) throw new Error('Binary source file');
+			if (/Code generated .*DO NOT EDIT|@generated/.test(content.slice(0, 2048))) { coverage.push({ path, status: 'excluded', reason: 'generated file header' }); return; }
+			const extracted = extractComments(path, content);
+			sources.set(path, content);
+			const selected = extracted.comments.filter(block => lines === undefined || [...lines].some(line => line >= block.line && line <= block.endLine));
+			blocks.push(...selected.map(inFolder));
+			coverage.push(extracted.commentError ? { path, status: 'failed', reason: 'Source parser errors overlap comments; extraction may be incomplete' } : { path, status: 'checked', comments: selected.length, exclusions: extracted.exclusions, warnings: extracted.warnings });
+		} catch (error) {
+			coverage.push({ path, status: 'failed', reason: error instanceof Error ? error.message : String(error) });
+		}
+	};
 	if (options.draft !== undefined) {
 		const path = options.files[0] ?? 'draft.go';
-		const code = path.endsWith('.go') ? 'var _ = 0' : 'void 0;';
-		sources.set(path, `${code}\n${options.draft}`);
-		blocks.push(...findComments(path, `${code}\n${options.draft}`).map(block => inFolder({ ...block, line: block.line - 1, endLine: block.endLine - 1 })));
-	} else if (options.files.length > 0) {
-		for (const path of options.files) {
-			sources.set(path, readFileSync(path, 'utf8'));
-			blocks.push(...findComments(path, sources.get(path) ?? '').map(inFolder));
+		const prefix = path.endsWith('.go') ? 'package draft\n' : path.endsWith('.rs') ? '' : 'void 0;\n';
+		collect(path, () => prefix + options.draft, true);
+		const shift = prefix === '' ? 0 : 1;
+		for (const file of coverage) if (file.status === 'checked') file.warnings = file.warnings.map(warning => ({ ...warning, line: Math.max(1, warning.line - shift), endLine: Math.max(1, warning.endLine - shift) }));
+		for (let i = 0; i < blocks.length; i++) {
+			const block = blocks[i];
+			blocks[i] = { ...block, line: block.line - shift, endLine: block.endLine - shift, overview: false, startIndex: block.startIndex - prefix.length, endIndex: block.endIndex - prefix.length, sourceMap: block.sourceMap.map(offset => offset - prefix.length), proseRanges: block.proseRanges.map(range => ({ start: range.start - prefix.length, end: range.end - prefix.length })) };
 		}
+	} else if (options.files.length > 0) {
+		for (const path of new Set(options.files)) collect(path, () => readFileSync(path, 'utf8'), true);
 	} else {
 		const range = options.diff === undefined ? undefined : checkRange(options.diff);
 		target = range === undefined ? '' : range.split('..').at(-1);
-		if (range !== undefined && (!range.includes('..') || range.includes('...') || !target)) throw new Error(`Diff range ${JSON.stringify(range)} must name both ends, such as main~3..main.`);
-
-		const diff = git(['diff', '-U0', '--no-color', ...(range === undefined ? ['--cached'] : ['--end-of-options', range]), '--', ...sourceFiles]);
-
-		removed = removedLines(diff);
-		for (const [path, lines] of changedLines(diff)) {
-			if (generated.test(path) || lines.size === 0) continue;
-
-			const content = git(['show', `${target}:${path}`]);
-			changed.set(path, content);
-			sources.set(path, content);
-			blocks.push(...findComments(path, content).filter(block => [...lines].some(line => line >= block.line && line <= block.endLine)));
+		if (range !== undefined && (!range.includes('..') || range.includes('...') || !target || !range.split('..')[0])) throw new Error(`Diff range ${JSON.stringify(range)} must name both ends, such as main~3..main.`);
+		const root = git(['rev-parse', '--show-toplevel']).trim();
+		const args = range === undefined ? ['--cached'] : ['--end-of-options', range];
+		const diff = gitDiff(['-U0', '--find-renames', ...args, '--'], root);
+		const parsed = parseDiff(diff);
+		const touched = parsed.changed;
+		removed = parsed.removed;
+		for (const file of diffFiles(args, root)) {
+			previousPaths.set(file.path, file.previousPath);
+			if (file.status === 'D') { coverage.push({ path: file.path, status: 'excluded', reason: 'deleted file' }); continue; }
+			if (file.status === 'T') { coverage.push({ path: file.path, status: 'excluded', reason: 'file type changed' }); continue; }
+			collect(file.path, () => git(['show', `${target}:${file.path}`], root), false, touched.get(file.path) ?? new Set());
+			const source = sources.get(file.path);
+			if (source !== undefined && supported(file.path)) changed.set(file.path, source);
 		}
 	}
 
@@ -168,9 +199,16 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	const bases = new Map<string, Committed[] | undefined>();
 	const baseOf = (path: string): Committed[] | undefined => {
 		if (!bases.has(path)) {
-			const inRepo = diffMode ? path : repoPath(path);
-			const content = inRepo === undefined ? undefined : readBase(baseRevision, inRepo);
-			bases.set(path, content === undefined ? undefined : committedComments(path, content));
+			const inRepo = diffMode ? previousPaths.get(path) ?? path : repoPath(path);
+			try {
+				const content = inRepo === undefined ? undefined : readBase(baseRevision, inRepo);
+				bases.set(path, content === undefined ? undefined : committedComments(path, content));
+			} catch (error) {
+				const failure: Coverage = { path, status: 'failed', reason: `Cannot compare committed comments: ${error instanceof Error ? error.message : String(error)}` };
+				const index = coverage.findIndex(file => file.path === path);
+				if (index < 0) coverage.push(failure); else coverage[index] = failure;
+				bases.set(path, undefined);
+			}
 		}
 
 		return bases.get(path);
@@ -179,7 +217,7 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	// Pairs comment with committed one above same code, nearest first, since rewrites leave code alone.
 	// Draft may carry fewer code lines than anchor, and its line numbers say nothing about place.
 	// Draft pairs only when one committed comment fits.
-	const candidatesOf = (block: CommentBlock, committed: Committed[]): Committed[] => committed.filter(old => startsWith(flat(block.codeKey), old.anchor) || startsWith(old.anchor, flat(block.codeKey)));
+	const candidatesOf = (block: CommentBlock, committed: Committed[]): Committed[] => committed.filter(old => (startsWith(flat(block.codeKey), old.anchor) || startsWith(old.anchor, flat(block.codeKey))));
 	const keysIn = new Map<string, string[]>();
 	const currentKeys = (path: string): string[] => keysIn.get(path) ?? keysIn.set(path, codeKeys(sources.get(path) ?? '').map(entry => entry.key)).get(path) ?? [];
 
@@ -203,7 +241,7 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	// Links this change adds anywhere, including docs, where links dropped from comment may have moved.
 	let added = '';
 	try {
-		added = git(['diff', '-U0', '--no-color', ...(diffMode ? (options.diff === undefined ? ['--cached'] : ['--end-of-options', checkRange(options.diff)]) : ['HEAD'])]);
+		added = gitDiff(['-U0', ...(diffMode ? (options.diff === undefined ? ['--cached'] : ['--end-of-options', checkRange(options.diff)]) : ['HEAD'])], git(['rev-parse', '--show-toplevel']).trim());
 	} catch {
 		// Outside repository or before first commit, nothing has moved.
 	}
@@ -211,7 +249,7 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 	const links = new Set<string>();
 	let inDocs = false;
 	for (const line of added.split('\n')) {
-		if (line.startsWith('+++ ')) inDocs = /\.(?:md|txt|rst|tmpl)$/.test(line);
+		if (line.startsWith('+++ ')) inDocs = /\.(?:md|txt|rst|tmpl)$/.test(parseFileHeader(line));
 		else if (line.startsWith('+') && (inDocs || /^\s*(?:\/\/|\/\*|\*)/.test(line.slice(1)))) for (const link of bareLinks(line)) links.add(link);
 	}
 
@@ -228,10 +266,10 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 				? `Several committed comments sit above code like this in ${block.path}, so rewrite checks were skipped. Pass more code lines below the comment.`
 				: `No committed comment sits above this code in ${block.path}, so it is checked as new comment.`);
 		}
-		const rewritten = previous !== undefined && (previous.join('\n') !== block.text.join('\n') || block.size !== pair?.size);
-		const issues = [...codeIssues(block), ...(rewritten ? rewriteIssues(block.text, previous, links, { now: block.size, before: pair?.size ?? previous.length }) : [])];
+		const rewritten = previous !== undefined && (previous.join('\n') !== block.text.join('\n') || block.size !== pair?.size || pair.kind !== block.kind);
+		const issues = configuredIssues([...codeIssues(block, configuration.profile), ...(rewritten && pair ? scopedRewriteIssues(block, pair, links) : [])], configuration, block.safety);
 
-		return { ...block, issues, packageDoc: packageDoc(block.path), previous: rewritten ? previous : null };
+		return { ...block, issues, packageDoc: packageDoc(block.path), previous: rewritten ? previous : null, previousProse: rewritten ? pair?.prose : undefined };
 	});
 
 	// Deleted comment whose code stays loses its reason, while comment deleted with its code goes with it.
@@ -259,50 +297,59 @@ export function readCommentStyle(options: { files: string[]; diff?: string; draf
 			const moved = index === undefined ? undefined : comments[index];
 			if (near !== undefined && moved !== undefined) {
 				unpaired.delete(near);
-				comments[index ?? 0] = { ...moved, issues: [...moved.issues, ...rewriteIssues(near.text, old.text, links, { now: near.size, before: old.size })], previous: old.text };
+				comments[index ?? 0] = { ...moved, issues: [...moved.issues, ...configuredIssues(scopedRewriteIssues(near, old, links), configuration, near.safety)], previous: old.text };
 				continue;
 			}
 
 			comments.push({
 				...old, line: at.line, endLine: at.line, packageDoc: packageDoc(path), previous: null, deleted: true,
-				issues: [{ rule: 'comment_deleted', detail: 'Comment deleted while its code stays. Put it back and rewrite it.' }],
+				issues: configuredIssues([{ rule: 'comment_deleted', detail: 'Comment deleted while its code stays. Preserve its reason, documentation or safety argument.' }], configuration),
 			});
 		}
 	}
 
-	return { pack, comments, notes };
+	comments.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+	return { pack, comments, notes, coverage, configuration: { profile: configuration.profile, source: configuration.source } };
 }
 
 // Without ask, only code checks run, and nothing is sent.
 export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | undefined): Promise<Report> {
 	const answered = [];
+	const failures: string[] = [];
+	let stopped = false;
 	// Undefined once any answer lacks cost, so total never undercounts.
 	let cost: number | undefined = 0;
 
 	for (let index = 0; index < request.comments.length; index += concurrency) {
 		const batch = request.comments.slice(index, index + concurrency);
 		answered.push(...await Promise.all(batch.map(async comment => {
-			if (ask === undefined) return { ...comment, result: null, flags: [] };
+			if (ask === undefined || stopped || comment.deleted) return { ...comment, result: null, flags: [] };
 
 			// Go requires doc comment on each exported name, and saying what name does is its job.
 			const exported = comment.goName !== null && /^\p{Lu}/u.test(comment.goName);
-			// Deleting comment is right only when it merely repeats code, never for exported Go name or cited source.
-			if (comment.deleted && (exported || comment.text.some(line => /https?:\/\//.test(line)))) return { ...comment, result: null, flags: [] };
+			// Documentation and safety arguments keep their deterministic preservation checks.
+			if (comment.rustdoc && comment.prose.length === 0) return { ...comment, result: null, flags: [] };
 			// meaning_lost needs earlier version, so it is asked only about rewritten comments.
-			const names = comment.deleted ? ['restates_code' as const] : questionNames.filter(name => !(name === 'restates_code' && exported) && (name !== 'meaning_lost' || comment.previous !== null));
-			const state: State = { file: comment.path, comment: comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc };
-			if (comment.previous !== null) state.previous_comment = comment.previous.join('\n');
-			const result = await ask(state,
-				Object.fromEntries(names.map(name => [name, questions[name]])));
+			const names = questionNames.filter(name => !(name === 'restates_code' && (exported || comment.rustdoc || comment.safety)) && (name !== 'meaning_lost' || comment.previous !== null));
+			const state: State = { file: comment.path, comment: comment.rustdoc ? comment.prose.join('\n') : comment.text.join('\n'), code_after: comment.codeAfter, package_doc: comment.packageDoc };
+			if (comment.previous !== null) state.previous_comment = (comment.rustdoc ? comment.previousProse ?? comment.previous : comment.previous).join('\n');
+			const result = await Promise.resolve().then(() => ask(state,
+				Object.fromEntries(names.map(name => [name, questions[name]])))).catch((error: unknown) => {
+				const failure = jevFailure(error);
+				if (!failure.stop || !stopped) failures.push(`${comment.path}:${comment.line}: Jev request failed: ${failure.detail}${failure.stop ? '; further requests skipped' : ''}`);
+				if (failure.stop) stopped = true;
+				cost = undefined;
+				return null;
+			});
+			if (result === null) return { ...comment, result, flags: [] };
 			const answerCost = costOf(result);
 			cost = cost === undefined || answerCost === undefined ? undefined : cost + answerCost;
 
 			const flags = names.flatMap(name => {
 				const probability = result.answers[name]?.noul ?? 0;
 
-				return probability >= (name === 'jargon' ? jargonProbability : flagProbability) ? [{ name, probability }] : [];
+				return probability >= (name === 'jargon' ? jargonProbability : flagProbability) ? [{ name, probability, severity: 'warning' as const }] : [];
 			});
-			if (comment.deleted) return { ...comment, issues: flags.length > 0 ? [] : comment.issues, result, flags: [] };
 
 			return { ...comment, result, flags };
 		})));
@@ -310,17 +357,33 @@ export async function runCommentStyle(request: CommentStyleRequest, ask: Ask | u
 
 	const findings = answered.filter(comment => comment.issues.length > 0 || comment.flags.length > 0).map(comment => [
 		`${comment.path}:${comment.line}  ${preview(comment.text[0] ?? '')}`,
-		...comment.issues.map(issue => `  ${issue.rule}: ${issue.detail}`),
+		...comment.issues.map(issue => `  ${issue.rule} [${issue.severity}]: ${issue.detail}`),
 		...comment.flags.map(flag => `  ${flag.name} (Jev ${Math.round(flag.probability * 100)}%): ${labels[flag.name]}`),
 	].join('\n'));
 
+	const coverage = request.coverage ?? [];
+	const failed = failures.length > 0 || coverage.some(file => file.status === 'failed' || file.status === 'unsupported' && file.explicit);
+	const exitCode = failed ? 2 : answered.some(comment => comment.issues.some(issue => issue.severity === 'error')) ? 1 : 0;
+	const coverageNotes = coverage.flatMap(file => file.status === 'checked'
+		? file.warnings.length ? [`${file.path}: parse warning: source syntax recovered outside comments (${file.warnings.length} ranges)`] : []
+		: file.status === 'unsupported' || file.status === 'failed' ? [`${file.path}: ${file.status}: ${file.reason}`] : []);
+	const exclusions = new Map<string, number>();
+	for (const file of coverage) {
+		if (file.status === 'checked') for (const exclusion of file.exclusions) exclusions.set(exclusion.reason, (exclusions.get(exclusion.reason) ?? 0) + 1);
+		else if (file.status === 'excluded') exclusions.set(file.reason, (exclusions.get(file.reason) ?? 0) + 1);
+	}
+	const excluded = [...exclusions.values()].reduce((sum, count) => sum + count, 0);
+	const coverageSummary = `${coverage.filter(file => file.status === 'checked').length} files checked, ${coverage.filter(file => file.status === 'unsupported').length} unsupported, ${coverage.filter(file => file.status === 'failed').length} failed, ${excluded} exclusions${excluded ? ` (${[...exclusions].map(([reason, count]) => `${reason} ${count}`).join(', ')})` : ''}`;
+
 	return {
+		exitCode,
 		summary: `comment-style: ${findings.length} of ${request.comments.length} comments need a look `
-			+ (ask === undefined ? '(code checks only, for Jev questions the user runs telegrapher auth in their own terminal)' : cost === undefined ? '(with Jev)' : `($${cost.toFixed(6)})`),
+			+ (ask === undefined ? '(code checks only, for Jev questions the user runs telegrapher auth in their own terminal)' : cost === undefined ? '(with Jev)' : `($${cost.toFixed(6)})`) + (request.coverage ? `; ${coverageSummary}` : ''),
 		findings,
-		notes: request.notes,
-		next: findings.length === 0 ? undefined : 'Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing until nothing is flagged.',
-		record: { pack: request.pack, notes: request.notes ?? [], comments: answered },
+		notes: [...request.notes ?? [], ...coverageNotes],
+		failures: failures.sort(),
+		next: findings.length === 0 ? undefined : 'Check a rewrite before editing: telegrapher comment-style --stdin --file <file>. Rerun after editing to resolve errors and review warnings.',
+		record: { pack: request.pack, configuration: request.configuration, coverage, failures, exitCode, notes: request.notes ?? [], comments: answered },
 	};
 }
 

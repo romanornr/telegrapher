@@ -1,7 +1,9 @@
+import { changedLines, removedLines } from './diff.ts';
+import { findComments } from './extract.ts';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { changedLines, codeIssues, findComments, removedLines, rewriteIssues } from './comments.ts';
+import { codeIssues, rewriteIssues } from './comments.ts';
 
 function rules(source: string): string[][] {
 	return findComments('example.ts', source).map(block => codeIssues(block).map(issue => issue.rule));
@@ -42,7 +44,7 @@ test('allows lines that stay even, only grow or only shrink, and flags a zigzag'
 
 test('measures a line that carries a link without the link, so text crammed before it still counts', () => {
 	const crammed = ['run();', '// ntpReplyChecks adds reply checks that beevik lacks, without replacing its parser.', `// Unlike beevik, it returns kiss-o'-death replies even with empty timestamps, and rejects missing receive timestamps, unlike any version so far: https://github.com/beevik/ntp/blob/953b636/ntp4.go`, '// It rejects old versions: https://github.com/systemd/systemd/blob/885fe07/timesyncd.c', 'run();'].join('\n');
-	assert.deepEqual(rules(crammed), [['link_mismatch', 'too_wide', 'not_telegraphic', 'uneven_lines']]);
+	assert.deepEqual(rules(crammed), [['link_mismatch', 'too_wide']]);
 });
 
 test('leaves lines that carry a link out of line balance', () => {
@@ -63,7 +65,7 @@ test('allows a link on its own line only under one or two lines of text', () => 
 	assert.deepEqual(rules(long), [['link_line']]);
 	assert.deepEqual(rules('run();\n// https://example.com/spec\nrun();'), [['link_line']]);
 	assert.deepEqual(rules('run();\n// Reply parsing follows beevik and systemd:\n// https://github.com/beevik/ntp/blob/953b636/ntp4.go\n// https://github.com/systemd/systemd/blob/885fe07/timesyncd.c\nrun();'), [[]]);
-	assert.deepEqual(rules('run();\n// Reject stale replies.\n// Clock policy follows example sources:\n// https://example.com/a\n// https://example.com/b\nrun();'), [['link_line', 'uneven_lines']]);
+	assert.deepEqual(rules('run();\n// Reject stale replies.\n// Clock policy follows example sources:\n// https://example.com/a\n// https://example.com/b\nrun();'), [['link_line']]);
 });
 
 test('flags a link that does not end its line, or follows text without a colon', () => {
@@ -88,7 +90,7 @@ test('an unclosed fence hides nothing', () => {
 
 test('flags a link followed by more text, but not a tail of source lines', () => {
 	const middle = ['const x = 1;', '// Separating results from alarms follows sfptpd: https://github.com/Xilinx-CNS/sfptpd/blob/5ac5b58/src/sfptpd_engine.c#L2032', '// Previous clock error stays open across unknown results, which never count as recovery.', 'run();'].join('\n');
-	assert.deepEqual(rules(middle), [['link_last', 'uneven_lines']]);
+	assert.deepEqual(rules(middle), [['link_last']]);
 	const tail = ['const x = 1;', '// Login flow is adapted from pi: https://github.com/earendil-works/pi/blob/8ce69e9/openrouter.ts', '// Callback server is adapted from pi too: https://github.com/earendil-works/pi/blob/8ce69e9/callback-server.ts', 'run();'].join('\n');
 	assert.deepEqual(rules(tail), [[]]);
 });
@@ -124,12 +126,12 @@ test('flags a line over 120 characters of text, not counting links', () => {
 	assert.deepEqual(rules(`run();\n// beevik ${'x'.repeat(93)}: https://github.com/beevik/ntp/blob/953b63646f5273d44de88b68e5862ad155ed4660/ntp4.go#L262\nrun();`), [[]]);
 });
 
-test('with a link, lines must widen toward the link line, measured with the link', () => {
+test('source links impose no staircase on preceding lines', () => {
 	const url = 'https://github.com/pendulum-project/ntpd-rs/blob/46ec9bb4d5b6cb24f814f5543d85b9138afb4cba/ntp-proto/src/source.rs#L715';
 	const good = ['run();', '// Report rate-limit requests and refusals as separate reasons, as ntpd-rs', '// Several reasons may appear together, and none is presented as sole cause', `// ${url}`, 'run();'].join('\n');
 	const bad = ['run();', '// Report rate-limit requests and refusals as separate reasons, as ntpd-rs does', '// Several reasons may appear together, and none is presented as sole cause', `// ${url}`, 'run();'].join('\n');
 	assert.deepEqual(rules(good), [[]]);
-	assert.deepEqual(rules(bad), [['uneven_lines']]);
+	assert.deepEqual(rules(bad), [[]]);
 });
 
 test('flags a colon touching a link', () => {
@@ -148,11 +150,11 @@ test('skips tool directives and licence notices', () => {
 });
 
 test('maps zero-context diff hunks to the new file line numbers', () => {
-	const diff = ['+++ b/tools/a.ts', '@@ -3,0 +4,2 @@', '+x', '+y', '@@ -10 +12 @@', '+z', '+++ /dev/null', '@@ -1 +0,0 @@'].join('\n');
+	const diff = ['+++ b/tools/a.ts', '@@ -3,0 +4,2 @@', '+x', '+y', '@@ -10 +12 @@', '-old', '+z', '+++ /dev/null', '@@ -1 +0,0 @@', '-deleted'].join('\n');
 
 	assert.deepEqual([...changedLines(diff)].map(([path, lines]) => [path, [...lines]]), [['tools/a.ts', [4, 5, 12]]]);
-	assert.deepEqual([...changedLines(['+++ b/x.go', '@@ -5 +4,0 @@'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [4, 5]]]);
-	assert.deepEqual([...removedLines(['+++ b/x.go', '@@ -5,2 +4,0 @@', '@@ -9 +7 @@'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [5, 6, 9]]]);
+	assert.deepEqual([...changedLines(['+++ b/x.go', '@@ -5 +4,0 @@', '-deleted'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [4, 5]]]);
+	assert.deepEqual([...removedLines(['+++ b/x.go', '@@ -5,2 +4,0 @@', '-one', '-two', '@@ -9 +7 @@', '-old', '+new'].join('\n'))].map(([path, lines]) => [path, [...lines]]), [['x.go', [5, 6, 9]]]);
 });
 
 // Stays free of imports, so the rules can move to their own package without Jev or git.
@@ -162,16 +164,15 @@ test('comment rules import nothing', async () => {
 	assert.doesNotMatch(source, /^import /m);
 });
 
-test('flags articles and filler for telegraphic style, ignoring code spans and quotes', () => {
-	assert.deepEqual(rules('run();\n// Evaluates the right side only when the left side does not decide.\nrun();'), [['not_telegraphic']]);
-	assert.deepEqual(rules('run();\n// Evaluates right side only when left side does not decide.\nrun();'), [[]]);
-	assert.deepEqual(rules('run();\n// Returns `the a` or "the an", never empty string.\nrun();'), [[]]);
+test('general keeps grammatical words and telegram flags them, both ignore code and quotes', () => {
 	const [block] = findComments('x.ts', 'run();\n// The cost of the search is just a guess.\nrun();');
-	assert.equal(block === undefined ? '' : codeIssues(block).find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: the ×2, just ×1, a ×1.');
-	const [phrases] = findComments('x.ts', 'run();\n// Retry at once, for example after timeout, so callers can see it.\nrun();');
-	assert.equal(phrases === undefined ? '' : codeIssues(phrases).find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: at once ×1, for example ×1, so ×1, can ×1.');
+	assert.ok(block);
+	assert.equal(codeIssues(block).find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: just ×1.');
+	assert.equal(codeIssues(block, 'telegram').find(issue => issue.rule === 'not_telegraphic')?.detail, 'Drop where meaning survives: the ×2, just ×1, a ×1.');
+	assert.deepEqual(rules('run();\n// The caller can own the buffer, so it still works even after a retry.\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Returns `the a` or "the an", never empty string.\nrun();'), [[]]);
+	assert.deepEqual(rules('run();\n// Retry at once, for example after timeout, so callers can see it.\nrun();'), [[]]);
 	assert.deepEqual(rules('run();\n// Just retry.\nrun();'), [['not_telegraphic']]);
-	assert.deepEqual(rules('run();\n// Wait for reply.\nrun();'), [[]]);
 });
 
 test('allows two sentences on one line when that evens out shape', () => {

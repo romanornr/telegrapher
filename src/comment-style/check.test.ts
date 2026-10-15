@@ -1,3 +1,4 @@
+import { findComments } from './extract.ts';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { preview, readCommentStyle, runCommentStyle, type CommentStyleRequest } from './check.ts';
-import { codeIssues, findComments } from './comments.ts';
+import { codeIssues } from './comments.ts';
 import { jev } from '../request.ts';
 
 test('reports code issues and Jev answers above the threshold, one request per comment', async () => {
@@ -160,15 +161,15 @@ test('in a diff, flags a dropped link line and a comment deleted while its code 
 		['r.go', 'Reads clocks.', ['comment_deleted']],
 	]);
 
-	// Jev may clear deleted comment that only repeats its code, never one citing source or documenting exported Go name.
+	// Jev advice never clears a deterministic deletion finding.
 	const report = await runCommentStyle(request, jev('sk-test', async (_, init) => {
 		const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown>; state: { comment: string } };
 		const restates = body.state.comment === 'Reads clocks.' ? 0.9 : 0.1;
 
 		return Response.json({ model: 'jev', answers: Object.fromEntries(Object.keys(body.questions).map(name => [name, { type: 'noul', noul: name === 'restates_code' ? restates : 0.1 }])), usage: { input_tokens: 1, output_tokens: 1 } });
 	}));
-	assert.equal(report.findings.length, 2);
-	assert.doesNotMatch(report.findings.join('\n'), /Reads clocks/);
+	assert.equal(report.findings.length, 3);
+	assert.match(report.findings.join('\n'), /Reads clocks/);
 });
 
 test('always flags a deleted doc comment on an exported Go name', async () => {

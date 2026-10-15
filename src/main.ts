@@ -1,11 +1,10 @@
 #!/usr/bin/env node
+import { loadConfiguration } from './comment-style/config.ts';
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { APIError, TypeSafeError } from '@typesafe-ai/sdk';
 import { createInterface } from 'node:readline/promises';
 import password from '@inquirer/password';
 import open from 'open';
-import { questions as commentQuestions, readCommentStyle, runCommentStyle } from './comment-style/check.ts';
 import { credentialsPath, findKey, saveKey, type KeySource } from './credentials.ts';
 import { keyLabel, loginWithOpenRouter, shouldOpenBrowser, type Ask as AskLine, type LoginMode } from './openrouter-login.ts';
 import { jev, model, providerOf, providers, type Ask, type Report } from './request.ts';
@@ -17,7 +16,7 @@ const usage = `Usage:
 
 comment-style checks comments in whole files, a commit range, or by default the staged changes.
 --stdin checks a draft comment, optionally with the code line it documents, as if it sat in --file, which stays unchanged.
-It prints only what needs a look. --preview prints the request without sending it.
+It prints findings and file coverage. --preview prints the request without sending it.
 --json prints every answer, including unflagged ones, for tuning. Keep that output out of committed files.
 auth saves a TypeSafe or OpenRouter key for every project, readable only by you.
 It asks for a key, or with an empty answer signs in with OpenRouter in your browser.
@@ -25,30 +24,49 @@ It asks for a key, or with an empty answer signs in with OpenRouter in your brow
 --no-browser signs in with a code OpenRouter shows, for SSH sessions and containers.
 --stdin reads a key piped from a password manager, for example: pass show openrouter | telegrapher auth --stdin
 Keys are looked up in JEV_API_KEY, then the saved file, then OPENROUTER_API_KEY.
+--profile selects general (default) or telegram. --config reads one TOML file; --no-config uses defaults.
+--local-only skips key lookup and Jev. --exit-zero suppresses findings exit 1, while failures still exit 2.
+Exit codes: 0 clean or advisory findings, 1 local errors, 2 incomplete execution.
 Keys starting with sk-or- go through OpenRouter. Without a key, code checks still run and nothing is sent.`;
 
-const { positionals, values } = parseArgs({
-	allowPositionals: true,
-	options: {
-		file: { type: 'string', multiple: true, default: [] },
-		diff: { type: 'string' },
-		preview: { type: 'boolean', default: false },
-		json: { type: 'boolean', default: false },
-		browser: { type: 'boolean' },
-		stdin: { type: 'boolean', default: false },
-	},
-	allowNegative: true,
-});
+function argumentsOf(args = process.argv.slice(2)) {
+	return parseArgs({
+		args,
+		allowPositionals: true,
+		options: {
+			file: { type: 'string', multiple: true, default: [] },
+			diff: { type: 'string' },
+			preview: { type: 'boolean', default: false },
+			json: { type: 'boolean', default: false },
+			browser: { type: 'boolean' },
+			stdin: { type: 'boolean', default: false },
+			profile: { type: 'string' },
+			config: { type: 'string' },
+			'no-config': { type: 'boolean', default: false },
+			'local-only': { type: 'boolean', default: false },
+			'exit-zero': { type: 'boolean', default: false },
+			help: { type: 'boolean', short: 'h', default: false },
+		},
+		allowNegative: true,
+	});
+}
+const parsed = (() => {
+	try { return { args: argumentsOf(), error: null }; }
+	catch (error) { return { args: argumentsOf([]), error: error instanceof Error ? error.message : String(error) }; }
+})();
+const { positionals, values } = parsed.args;
 
 type Prepared = { preview: unknown; run: (ask: Ask | undefined) => Promise<Report> };
 
-function prepare(): Prepared | undefined {
+async function prepare(): Promise<Prepared | undefined> {
 	const [check] = positionals;
 	if (positionals.length !== 1) return undefined;
 
 	if (check === 'comment-style') {
-		if (values.stdin && values.file.length > 1) return undefined;
-		const request = readCommentStyle({ files: values.file, diff: values.diff, draft: values.stdin ? readFileSync(0, 'utf8') : undefined });
+		if (values.stdin && values.file.length > 1 || values.config && values['no-config']) return undefined;
+		const { questions: commentQuestions, readCommentStyle, runCommentStyle } = await import('./comment-style/check.ts');
+		const configuration = loadConfiguration({ config: values.config, noConfig: values['no-config'], profile: values.profile });
+		const request = readCommentStyle({ configuration, files: values.file, diff: values.diff, draft: values.stdin ? readFileSync(0, 'utf8') : undefined });
 
 		return { preview: { model, questions: commentQuestions, ...request }, run: ask => runCommentStyle(request, ask) };
 	}
@@ -163,6 +181,8 @@ async function auth(): Promise<number> {
 
 // Returns the exit code instead of calling process.exit, which can cut off output still flowing into a pipe.
 async function main(): Promise<number> {
+	if (parsed.error !== null) { console.error(parsed.error); return 2; }
+	if (values.help) { console.log(usage); return 0; }
 	if (positionals.length === 1 && positionals[0] === 'auth') {
 		// Ctrl-C inside prompt ends auth quietly, with exit code 130 like other interrupted programs.
 		return auth().catch((error: unknown) => {
@@ -171,7 +191,7 @@ async function main(): Promise<number> {
 		});
 	}
 
-	const prepared = prepare();
+	const prepared = await prepare();
 
 	if (prepared === undefined) {
 		console.error(usage);
@@ -186,7 +206,7 @@ async function main(): Promise<number> {
 	}
 
 	// Without a key, code checks still run and Jev is skipped.
-	const found = await findKey();
+	const found = values['local-only'] ? undefined : await findKey();
 	// Naming source, never key, explains which key runs when several are set.
 	if (found) console.error(`Jev key: ${sourceNames[found.source]}`);
 
@@ -196,22 +216,21 @@ async function main(): Promise<number> {
 		if (values.json) {
 			console.log(JSON.stringify(report.record, null, 2));
 		} else {
+			for (const finding of report.findings) console.log(`${finding}\n`);
 			console.log(report.summary);
 			for (const note of report.notes ?? []) console.log(note);
-
-			for (const finding of report.findings) console.log(`\n${finding}`);
 			if (report.next) console.log(`\n${report.next}`);
+			for (const failure of report.failures ?? []) console.error(failure);
 		}
 
-		return 0;
+		return values['exit-zero'] && report.exitCode === 1 ? 0 : report.exitCode;
 	} catch (error) {
-		// The service enforces its own state limit and names it in the body, such as max_tokens_exceeded.
-		if (error instanceof APIError) console.error(`Jev request failed: ${error.name}, HTTP ${error.status}: ${JSON.stringify(error.body)}`);
-		else if (error instanceof TypeSafeError) console.error(`Jev request failed: ${error.name}`);
-		else throw error;
-
-		return 1;
+		console.error(error instanceof Error ? error.message : String(error));
+		return 2;
 	}
 }
 
-process.exitCode = await main();
+process.exitCode = await main().catch((error: unknown) => {
+	console.error(error instanceof Error ? error.message : String(error));
+	return 2;
+});
