@@ -28,9 +28,9 @@ function staged(path: string, before: string, after: string) {
 
 test('review: promoting a line comment to documentation is a rewrite, never deletion', async () => {
 	for (const [path, before, after] of [
-		['x.rs', '// Explains the choice.\nfn x() {}', '/// Explains the choice.\nfn x() {}'],
-		['x.ts', '// Explains the choice.\nfunction x() {}', '/** Explains the choice. */\nfunction x() {}'],
-		['x.go', 'package x\n// x explains the choice.\nfunc x() {}', 'package x\n/* x explains the choice. */\nfunc x() {}'],
+		['x.rs', '// Explains choice.\nfn x() {}', '/// Explains choice.\nfn x() {}'],
+		['x.ts', '// Explains choice.\nfunction x() {}', '/** Explains choice. */\nfunction x() {}'],
+		['x.go', 'package x\n// x explains choice.\nfunc x() {}', 'package x\n/* x explains choice. */\nfunc x() {}'],
 	]) {
 		const request = staged(path, before, after);
 		assert.deepEqual(request.comments.map(comment => comment.deleted ?? false), [false], path);
@@ -40,7 +40,7 @@ test('review: promoting a line comment to documentation is a rewrite, never dele
 
 test('review: real Git quoted headers with spaces, Unicode and quotes retain coverage', async () => {
 	for (const path of ['sub dir/naïve file.rs', 'sub dir/a" file.rs', 'sub dir/tab\t file.rs']) {
-		const request = staged(path, '// Explains a choice.\nfn x() {}', '// Explains the choice.\nfn x() {}');
+		const request = staged(path, '// Explains a choice.\nfn x() {}', '// Explains choice.\nfn x() {}');
 		assert.deepEqual(request.coverage?.map(file => [file.path, file.status]), [[path, 'checked']]);
 		assert.equal((await runCommentStyle(request, undefined)).exitCode, 0);
 	}
@@ -74,7 +74,7 @@ test('review: directive-like prose stays checked when separated from the slash m
 });
 
 test('review: deleted comments never send unused Jev questions', async () => {
-	const request = staged('x.rs', '// Explains the choice.\nfn x() {}', 'fn x() {}');
+	const request = staged('x.rs', '// Explains choice.\nfn x() {}', 'fn x() {}');
 	let calls = 0;
 	const report = await runCommentStyle(request, jev('sk-test', async () => { calls++; throw new Error('must not call'); }));
 	assert.equal(calls, 0);
@@ -84,7 +84,7 @@ test('review: deleted comments never send unused Jev questions', async () => {
 
 test('review: incomplete draft declarations check comments without tool failure', async () => {
 	for (const [path, code] of [['x.rs', 'fn start() {'], ['x.ts', 'export function start() {'], ['x.go', 'func start() {']]) {
-		const request = readCommentStyle({ files: [path], draft: `// start explains the choice.\n${code}` });
+		const request = readCommentStyle({ files: [path], draft: `// start explains choice.\n${code}` });
 		assert.deepEqual(request.coverage?.map(file => file.status), ['checked'], path);
 		const report = await runCommentStyle(request, undefined);
 		assert.equal(report.exitCode, 0, path);
@@ -154,7 +154,7 @@ test('review: an unpinned bare link keeps its own line budget beside pinned meta
 });
 
 test('review: syntax errors covering comment nodes fail explicitly', async () => {
-	const request = readCommentStyle({ files: ['x.rs'], draft: 'fn x( // Explains the choice.\n{' });
+	const request = readCommentStyle({ files: ['x.rs'], draft: 'fn x( // Explains choice.\n{' });
 	assert.deepEqual(request.coverage?.map(file => file.status), ['failed']);
 	assert.equal((await runCommentStyle(request, undefined)).exitCode, 2);
 });

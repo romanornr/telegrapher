@@ -8,6 +8,7 @@ export const ruleNames = ['wrapped_sentence', 'crowded_line', 'semicolon', 'doc_
 export type Issue = { rule: (typeof ruleNames)[number]; detail: string; severity?: 'error' | 'warning' };
 export type LeveledIssue = Issue & { severity: 'error' | 'warning' };
 export type Profile = 'general' | 'telegram';
+export const defaultProfile: Profile = 'telegram';
 const maxInlineLines = 3;
 const maxLineWidth = 120;
 const minLineRatio = 0.85;
@@ -60,7 +61,7 @@ const droppable = new Set(['a', 'an', 'the', 'just', 'really', 'basically', 'act
 const filler = new Set(['just', 'really', 'basically', 'actually', 'simply', 'very', 'quite']);
 const droppablePhrases = ['these are', 'at once', 'for example'];
 
-export function codeIssues(block: CommentBlock, profile: Profile = 'general'): LeveledIssue[] {
+export function codeIssues(block: CommentBlock, profile: Profile = defaultProfile): LeveledIssue[] {
 	const prose = block.rustdoc ? block.prose : proseLines(block.text);
 	const issues: Issue[] = [];
 

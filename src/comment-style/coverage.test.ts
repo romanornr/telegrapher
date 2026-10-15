@@ -92,7 +92,7 @@ test('no candidate runs explicitly report that zero files were checked', async (
 
 test('pinned provenance is metadata and the exact shorthand migration preserves source identity', () => {
 	const commit = 'c'.repeat(40);
-	const source = `fn x() {}\n// Reviewdog unquoteCStyle decodes Git paths.\n// It handles escaped bytes.\n// A third detail remains useful.\n// https://github.com/reviewdog/reviewdog/blob/${commit}/diff/parse.go\nfn y() {}`;
+	const source = `fn x() {}\n// Reviewdog unquoteCStyle decodes Git paths.\n// It handles escaped bytes.\n// Third detail remains useful.\n// https://github.com/reviewdog/reviewdog/blob/${commit}/diff/parse.go\nfn y() {}`;
 	const [block] = findComments('x.rs', source);
 	assert.ok(block);
 	assert.deepEqual(codeIssues(block), []);
@@ -103,8 +103,8 @@ test('pinned provenance is metadata and the exact shorthand migration preserves 
 });
 
 test('clause wrapping near 100 characters and soft size and shape findings do not fail', async () => {
-	const clause = '// The caller retains the complete allocation until every outstanding operation has finished,\n// so the data remains available to readers.';
-	const request = readCommentStyle({ files: ['x.rs'], draft: `${clause}\n// Short.\n// A final useful detail remains here.\nfn x() {}` });
+	const clause = '// Caller retains complete allocation until every outstanding operation on shared storage has finished,\n// keeping data available to readers.';
+	const request = readCommentStyle({ files: ['x.rs'], draft: `${clause}\n// Short.\n// Final useful detail remains here.\nfn x() {}` });
 	const report = await runCommentStyle(request, undefined);
 	assert.equal(report.exitCode, 0);
 	assert.match(report.findings.join('\n'), /too_long \[warning\]/);

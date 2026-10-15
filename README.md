@@ -1,7 +1,7 @@
 # telegrapher
 
 Code comments a newcomer can read. Short, plain, clear.
-The default general profile keeps articles and connectors. The named telegram profile retains the terse style.
+The default `telegram` profile flags filler, articles and connectors. Opt out with `--profile general` to keep grammatical words and receive filler suggestions as warnings.
 
 telegrapher lists each problem comment by file and line, with broken rule and fix.
 Coding agents such as Codex and Claude Code read that list and rewrite comments themselves.
@@ -12,7 +12,7 @@ Checks only your changes. Adds nothing to repositories you contribute to.
 
 ## What your agent receives
 
-Comments written the way people and models often write them, followed by local-only output in the general profile:
+Comments written the way people and models often write them, followed by local-only output with the default `telegram` profile:
 
 ```go
 package client
@@ -51,7 +51,7 @@ client.go:11  Retry the request a few times; the server can still be starting up
   link_last [error]: Text follows a link. End the line with its link, and keep linked lines last. Never move the summary line.
   link_line [error]: Link has its own line, but the comment then runs past three lines. End the last line of text with a colon, then the link.
   too_long [warning]: 6 lines of text inside code, above 3. Links do not count. Keep summary and what readers need here, and move each other fact, with its link, next to the code it explains or into docs.
-  not_telegraphic [warning]: Drop where meaning survives: just ×1.
+  not_telegraphic [error]: Drop where meaning survives: the ×6, a ×4, can ×1, still ×1, so ×1, just ×1.
 
 comment-style: 2 of 3 comments need a look (code checks only, for Jev questions the user runs telegrapher auth in their own terminal); 1 files checked, 0 unsupported, 0 failed, 0 exclusions
 
@@ -65,15 +65,15 @@ package client
 
 import "time"
 
-// maxTries caps attempts, so an outage fails fast instead of hanging the caller.
+// maxTries caps attempts, letting outages fail fast instead of hanging caller.
 const maxTries = 5
 
-// baseDelay is the first wait between tries, doubled after each failed try.
-// Doubling follows cenkalti/backoff, a Go retry library: https://github.com/cenkalti/backoff
+// baseDelay starts retry wait, doubled after each failed try.
+// Doubling follows cenkalti/backoff, Go retry library: https://github.com/cenkalti/backoff
 var baseDelay = 100 * time.Millisecond
 
-// fetchWithRetry retries up to maxTries times while the server may be starting.
-// The wait doubles each time, so a busy server gets time to recover.
+// fetchWithRetry retries up to maxTries times while server may be starting.
+// Wait doubles each time, giving busy server time to recover.
 // Random extra wait, called jitter, keeps clients from retrying together: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 func fetchWithRetry(url string) error {
 	return nil
@@ -93,7 +93,7 @@ Code checks never vary. Treat Jev flags as leads, not verdicts.
 
 Real rewrites from the [angry-carp](https://github.com/romanornr/angry-carp) MQL engine: 44 comments in one pass.
 Each `-` block is the original comment. Each `+` block is its recorded telegram-style rewrite.
-These historical examples preserve the original pass, rather than prescribing article deletion or line geometry for general-profile users.
+These historical examples illustrate telegram-style rewrites. Current line balance and shortness checks are advisory in both profiles.
 
 ### Jargon becomes plain words, and the comment starts with its name
 
@@ -238,7 +238,7 @@ Jev is a paid service, used directly from TypeSafe or through OpenRouter, and co
 Jev receives selected comments, file names, following code, Go package documentation and previous comments for rewrites. Never pass secrets or private code.
 Jev findings are advisory and never clear local findings. Authentication, quota or rate-limit failure stops later batches and reports HTTP status and a service code without printing response text.
 
-- `jargon`: in-house shorthand or vague wording where plain words would do. Established technical terms, such as RFC 8252 or a protocol's own terms, are fine.
+- `jargon`: primarily invented compound terms and made-up noun phrases that only make sense to their author, such as "pointer-plus-effects transaction" or "consumer-owned processed position". In-house shorthand, slang and vague invented terms also count. Established technical terms, such as RFC 8252 or a protocol's own terms, and ordinary verbs such as "serializes", are fine.
 - `restates_code`: only repeats what the code does.
 - `status`: describes rollout progress instead of a lasting fact.
 - `unexplained_source`: cites a source without saying which idea it takes.
@@ -266,15 +266,15 @@ Diff input disables colour, external diff commands, and text conversion. Explici
 
 ## Profiles and configuration
 
-telegrapher searches upward from the working directory for `.telegrapher.toml`. If none exists, it reads `~/.config/telegrapher/config.toml`, or `telegrapher/config.toml` under an absolute `XDG_CONFIG_HOME`. Relative XDG paths are ignored, as they are for credentials. The first file wins as a whole. Project and home settings do not merge. Without either file, the profile is `general`.
+telegrapher searches upward from the working directory for `.telegrapher.toml`. If none exists, it reads `~/.config/telegrapher/config.toml`, or `telegrapher/config.toml` under an absolute `XDG_CONFIG_HOME`. Relative XDG paths are ignored, as they are for credentials. The first file wins as a whole. Project and home settings do not merge. Without a profile setting, the default is `telegram`.
 
-For a personal telegram default, put this in the home config:
+To opt out in every repository, put this in the home config:
 
 ```toml
-profile = "telegram"
+profile = "general"
 ```
 
-A project can select a profile and change individual local rule levels:
+A project can opt out through `.telegrapher.toml` and change individual local rule levels:
 
 ```toml
 profile = "general"
@@ -285,7 +285,7 @@ too_long = "warning"
 semicolon = "error"
 ```
 
-Levels are `off`, `warning`, and `error`. Unknown settings, profiles, rules, or levels fail visibly. `--config <path>` selects one file, `--no-config` uses built-in settings, and `--profile general|telegram` overrides the selected profile.
+Levels are `off`, `warning`, and `error`. Unknown settings, profiles, rules, or levels fail visibly. `--config <path>` selects one file, `--no-config` uses the built-in telegram settings, and `--profile general|telegram` overrides the selected profile. For a single run, opt out with `telegrapher comment-style --profile general`.
 
 
 ## Rust documentation and safety
@@ -322,7 +322,7 @@ The command prints failures after available local findings. `--exit-zero` suppre
 
 ## More examples
 
-These are recorded telegram-style examples. General-profile users keep grammatical words and treat line shape and shortness as advice.
+These are recorded telegram-style examples. General opts out of article and connector findings. Line shape and shortness are advisory in both profiles.
 
 ### Optional line balancing and one sentence per line
 
@@ -887,7 +887,7 @@ Every comment-only change in the engine, original against final, as `git diff` s
 1. Newcomer first: everyday words, then why, then any technical term once.
 2. Prefer one sentence per line, with clause breaks near 100 characters. No prose semicolons in ordinary comments.
 3. Line balance and a two-to-three-line target are advisory. No staircase toward a link.
-4. General keeps articles and connectors. Filler is advisory in general and error-level in telegram.
+4. Telegram is the default and flags articles, connectors and filler as errors. Opt-out General keeps grammatical words and treats filler as advisory.
 5. Durable facts only. Rollout status belongs in the PR.
 6. Go declaration comments start with the name they document.
 7. Preserve source links, documentation structure, safety labels and preconditions.

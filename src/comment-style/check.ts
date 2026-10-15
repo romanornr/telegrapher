@@ -9,7 +9,7 @@ import { checkRange, git, gitDiff, diffFiles } from '../git.ts';
 import { costOf, judgeOnly, jevFailure, type Ask, type Report, type State } from '../request.ts';
 
 // Bump the version whenever a question changes, so saved runs stay comparable.
-const pack = 'comment-style/3';
+const pack = 'comment-style/4';
 
 // Well above 0.5, so a near coin-flip answer does not count as a finding.
 const flagProbability = 0.65;
@@ -38,7 +38,7 @@ const labels: Record<(typeof questionNames)[number], string> = {
 
 // Each asks whether a rule is broken, so a high probability of yes is a flag.
 export const questions: Record<(typeof questionNames)[number], NoulQuestion & { instructions: string }> = {
-	jargon: question('Does `state.comment` use jargon: in-house shorthand, slang, or a vague or invented term where plain words would say the same? Words inside URLs and code spans do not count. Established technical terms with one fixed meaning in their field, such as protocol names, standard numbers like RFC 8252, and standard terms of that field, do not count. Terms named in `state.code_after` or explained in `state.package_doc` do not count either.'),
+	jargon: question('Does `state.comment` use invented compound terms or made-up noun phrases that only make sense to their author? These are the main target: for example, "pointer-plus-effects transaction" or "consumer-owned processed position". A phrase can use ordinary words and still name a made-up concept. Also flag in-house shorthand, slang, or vague invented terms where plain words would say the same. Words inside URLs and code spans do not count. Established technical terms with one fixed meaning in their field, such as protocol names, standard numbers like RFC 8252, and standard terms of that field, do not count. Ordinary verbs such as "serializes" do not count. Terms named in `state.code_after` or explained in `state.package_doc` do not count either.'),
 	restates_code: question('Does `state.comment` only describe what `state.code_after` visibly does, adding no reason, constraint or consequence?'),
 	status: question('Does `state.comment` describe project status or progress, such as planned work, recent changes or rollout state, instead of a fact that stays true?'),
 	unexplained_source: question('Does `state.comment` cite an outside source, such as a link, paper or project, without stating which idea it takes from that source?'),

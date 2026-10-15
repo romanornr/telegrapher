@@ -24,13 +24,13 @@ It asks for a key, or with an empty answer signs in with OpenRouter in your brow
 --no-browser signs in with a code OpenRouter shows, for SSH sessions and containers.
 --stdin reads a key piped from a password manager, for example: pass show openrouter | telegrapher auth --stdin
 Keys are looked up in JEV_API_KEY, then the saved file, then OPENROUTER_API_KEY.
---profile selects general (default) or telegram. --config reads one TOML file; --no-config uses defaults.
+--profile selects telegram (default) or general (opt-out). --config reads one TOML file; --no-config uses defaults.
 --local-only skips key lookup and Jev. --exit-zero suppresses findings exit 1, while failures still exit 2.
 Exit codes: 0 clean or advisory findings, 1 local errors, 2 incomplete execution.
 Keys starting with sk-or- go through OpenRouter. Without a key, code checks still run and nothing is sent.`;
 
 function argumentsOf(args = process.argv.slice(2)) {
-	return parseArgs({
+	const parsed = parseArgs({
 		args,
 		allowPositionals: true,
 		options: {
@@ -48,7 +48,18 @@ function argumentsOf(args = process.argv.slice(2)) {
 			help: { type: 'boolean', short: 'h', default: false },
 		},
 		allowNegative: true,
+		tokens: true,
 	});
+	// Tokens distinguish --no-config from --config despite parseArgs' automatic negation.
+	const config = parsed.tokens.findLast(token => token.kind === 'option' && token.rawName === '--config');
+	return {
+		...parsed,
+		values: {
+			...parsed.values,
+			config: config?.kind === 'option' ? config.value : undefined,
+			'no-config': parsed.tokens.some(token => token.kind === 'option' && token.rawName === '--no-config'),
+		},
+	};
 }
 const parsed = (() => {
 	try { return { args: argumentsOf(), error: null }; }

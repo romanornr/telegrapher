@@ -2,7 +2,7 @@ import { configDirectory } from '../credentials.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parse } from 'smol-toml';
-import { ruleNames, type Issue, type LeveledIssue, type Profile } from './comments.ts';
+import { defaultProfile, ruleNames, type Issue, type LeveledIssue, type Profile } from './comments.ts';
 
 export type Level = 'off' | 'warning' | 'error';
 export type Configuration = { profile: Profile; rules: Map<string, Level>; source: string | null };
@@ -27,7 +27,7 @@ export function loadConfiguration(options: { cwd?: string; home?: string; config
 	}
 	const data = source ? parse(readFileSync(source, 'utf8')) : {};
 	for (const key of Object.keys(data)) if (!['profile', 'rules'].includes(key)) throw new Error(`Unknown configuration key: ${key}`);
-	const profile = options.profile ?? data.profile ?? 'general';
+	const profile = options.profile ?? data.profile ?? defaultProfile;
 	if (profile !== 'general' && profile !== 'telegram') throw new Error('Profile must be general or telegram');
 	const rules = new Map<string, Level>();
 	if (data.rules !== undefined) {

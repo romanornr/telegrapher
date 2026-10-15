@@ -26,6 +26,7 @@ test('project config is first-found and does not merge home rule settings', asyn
 	assert.equal(report.exitCode, 1);
 	assert.match(report.findings.join('\n'), /semicolon \[error\]/);
 	assert.equal(loadConfiguration({ cwd, home, noConfig: true }).source, null);
+	assert.equal(loadConfiguration({ cwd, home, noConfig: true }).profile, 'telegram');
 	assert.equal(loadConfiguration({ cwd, home, profile: 'telegram' }).profile, 'telegram');
 });
 
@@ -38,4 +39,20 @@ test('configuration rejects invalid TOML, unknown keys, unknown rules and levels
 	}
 	writeFileSync(path, '[rules]\nsemicolon = "warning"');
 	assert.equal(loadConfiguration({ config: path }).rules.get('semicolon'), 'warning');
+	assert.equal(loadConfiguration({ config: path }).profile, 'telegram');
+});
+
+test('built-in configuration uses telegram and general is an explicit opt-out', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'telegrapher-default-'));
+	const builtin = loadConfiguration({ cwd: root, home: root, env: {} });
+	assert.equal(builtin.profile, 'telegram');
+	assert.equal(builtin.source, null);
+	const draft = '// The caller just waits.\nfn x() {}';
+	const request = readCommentStyle({ files: ['x.rs'], draft });
+	assert.equal(request.configuration?.profile, 'telegram');
+	assert.equal((await runCommentStyle(request, undefined)).exitCode, 1);
+	const general = loadConfiguration({ noConfig: true, profile: 'general' });
+	const optedOut = readCommentStyle({ files: ['x.rs'], draft, configuration: general });
+	assert.equal((await runCommentStyle(optedOut, undefined)).exitCode, 0);
+	assert.equal(optedOut.comments[0]?.issues[0]?.detail, 'Drop where meaning survives: just ×1.');
 });

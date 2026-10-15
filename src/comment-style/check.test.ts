@@ -34,6 +34,35 @@ test('reports code issues and Jev answers above the threshold, one request per c
 	assert.match(report.findings[1] ?? '', /jargon \(Jev 90%\): uses jargon where plain words would do\. Jev does not say which word/);
 });
 
+test('Jev receives the invented-compound rubric with the unchanged jargon threshold', async () => {
+	let calls = 0;
+	for (const score of [0.32, 0.49, 0.41, 0.899, 0.9]) {
+		const request = readCommentStyle({ files: ['x.rs'], draft: '// Tracks pointer-plus-effects transaction.\nfn x() {}' });
+		assert.equal(request.pack, 'comment-style/4');
+		const report = await runCommentStyle(request, jev('sk-test', async (_, init) => {
+			calls++;
+			const body: unknown = JSON.parse(String(init?.body));
+			assert.ok(typeof body === 'object' && body !== null && 'questions' in body);
+			assert.ok(typeof body.questions === 'object' && body.questions !== null && 'jargon' in body.questions);
+			const jargon = body.questions.jargon;
+			assert.ok(typeof jargon === 'object' && jargon !== null && 'instructions' in jargon);
+			assert.ok(typeof jargon.instructions === 'string');
+			assert.match(jargon.instructions, /invented compound terms or made-up noun phrases that only make sense to their author/);
+			assert.match(jargon.instructions, /These are the main target/);
+			assert.match(jargon.instructions, /pointer-plus-effects transaction/);
+			assert.match(jargon.instructions, /consumer-owned processed position/);
+			assert.match(jargon.instructions, /Established technical terms[\s\S]*RFC 8252[\s\S]*do not count/);
+			assert.match(jargon.instructions, /Ordinary verbs such as "serializes" do not count/);
+			assert.match(jargon.instructions, /Words inside URLs and code spans do not count/);
+			assert.match(jargon.instructions, /Terms named in `state.code_after` or explained in `state.package_doc` do not count/);
+			return Response.json({ model: 'jev', answers: { jargon: { type: 'noul', noul: score } }, usage: { input_tokens: 1, output_tokens: 1, cost: 0.0001 } });
+		}));
+		assert.equal(report.findings.some(finding => finding.includes('jargon (Jev')), score >= 0.9);
+		assert.equal(report.exitCode, 0);
+	}
+	assert.equal(calls, 5);
+});
+
 test('does not ask whether a Go doc comment on an exported name restates the code', async () => {
 	const source = 'package mql\n\n// Kind returns "match".\nfunc (Matched) Kind() string { return "match" }\n\n// Keeps each lookup short.\nfunc lookup() {}\n';
 	const blocks = findComments('evaluate.go', source);

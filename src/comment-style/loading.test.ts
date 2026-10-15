@@ -67,9 +67,9 @@ assert.equal(supported('x.ts'), true);
 assert.throws(() => extractComments('x.py', '# Explanation.'), /Unsupported language/);
 assert.deepEqual(reads, []);
 for (let i = 0; i < 3; i++) {
-	const comments = findComments('x.rs', '// Explains the choice.\\nfn x() {}');
+	const comments = findComments('x.rs', '// Explains choice.\\nfn x() {}');
 	assert.ok(Array.isArray(comments));
-	assert.deepEqual(comments.map(comment => comment.text), [['Explains the choice.']]);
+	assert.deepEqual(comments.map(comment => comment.text), [['Explains choice.']]);
 }
 assert.deepEqual(reads, ['tree-sitter-rust.wasm']);
 assert.equal(loads, 1);
@@ -85,7 +85,7 @@ test('mixed requests load only their languages and reuse the TypeScript grammar 
 const { readCommentStyle, runCommentStyle } = await import(${JSON.stringify(module)});
 assert.deepEqual(reads, []);
 for (const path of ['x.rs', 'x.ts', 'x.mts', 'x.cts']) {
-	const request = readCommentStyle({ files: [path], draft: '// Explains the choice.\\n' + (path.endsWith('.rs') ? 'fn x() {}' : 'function x() {}') });
+	const request = readCommentStyle({ files: [path], draft: '// Explains choice.\\n' + (path.endsWith('.rs') ? 'fn x() {}' : 'function x() {}') });
 	assert.equal(request.coverage[0].status, 'checked');
 	assert.equal(request.comments.length, 1);
 	assert.equal((await runCommentStyle(request, undefined)).exitCode, 0);
@@ -103,12 +103,12 @@ test('a failed needed grammar is cached without preventing other languages from 
 		script(root, env, `${traceReads}
 const { readCommentStyle, runCommentStyle } = await import(${JSON.stringify(module)});
 for (let i = 0; i < 2; i++) {
-	const request = readCommentStyle({ files: ['x.rs'], draft: '// Explains the choice.\\nfn x() {}' });
+	const request = readCommentStyle({ files: ['x.rs'], draft: '// Explains choice.\\nfn x() {}' });
 	assert.equal(request.coverage[0].status, 'failed');
 	assert.match(request.coverage[0].reason, /Cannot load rust grammar:.*ENOENT/s);
 	assert.equal((await runCommentStyle(request, undefined)).exitCode, 2);
 }
-const request = readCommentStyle({ files: ['x.ts'], draft: '// Explains the choice.\\nfunction x() {}' });
+const request = readCommentStyle({ files: ['x.ts'], draft: '// Explains choice.\\nfunction x() {}' });
 assert.equal(request.coverage[0].status, 'checked');
 assert.equal((await runCommentStyle(request, undefined)).exitCode, 0);
 assert.deepEqual(reads, ['tree-sitter-rust.wasm', 'tree-sitter-typescript.wasm']);
@@ -122,7 +122,7 @@ for (const state of ['missing', 'invalid']) {
 		fixture([], (root, env) => {
 			if (state === 'invalid') writeFileSync(join(root, 'vendor/grammars/tree-sitter-rust.wasm'), 'invalid WASM');
 			const main = join(root, 'src/main.ts');
-			const result = spawnSync(process.execPath, [main, 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains the choice.\nfn x() {}', encoding: 'utf8' });
+			const result = spawnSync(process.execPath, [main, 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains choice.\nfn x() {}', encoding: 'utf8' });
 			assert.equal(result.status, 2, result.stderr + result.stdout);
 			assert.match(result.stdout, /"status": "failed"/);
 			assert.match(result.stdout, /Cannot load rust grammar:/);
@@ -134,7 +134,7 @@ for (const state of ['missing', 'invalid']) {
 test('Rust-only CLI succeeds when every unrelated grammar is absent', () => {
 	fixture(['rust'], (root, env) => {
 		const main = join(root, 'src/main.ts');
-		const result = spawnSync(process.execPath, [main, 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains the choice.\nfn x() {}', encoding: 'utf8' });
+		const result = spawnSync(process.execPath, [main, 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains choice.\nfn x() {}', encoding: 'utf8' });
 		assert.equal(result.status, 0, result.stderr + result.stdout);
 		assert.match(result.stdout, /"status": "checked"/);
 		assert.match(result.stdout, /"exitCode": 0/);
@@ -147,7 +147,7 @@ for (const state of ['missing', 'invalid']) {
 			const runtime = join(root, 'node_modules/web-tree-sitter');
 			cpSync(new URL('../../node_modules/web-tree-sitter', import.meta.url), runtime, { recursive: true, filter: path => !path.endsWith('.wasm') });
 			if (state === 'invalid') writeFileSync(join(runtime, 'web-tree-sitter.wasm'), 'invalid WASM');
-			const result = spawnSync(process.execPath, [join(root, 'src/main.ts'), 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains the choice.\nfn x() {}', encoding: 'utf8' });
+			const result = spawnSync(process.execPath, [join(root, 'src/main.ts'), 'comment-style', '--local-only', '--no-config', '--stdin', '--file', 'x.rs', '--json'], { cwd: root, env, input: '// Explains choice.\nfn x() {}', encoding: 'utf8' });
 			assert.equal(result.status, 2, result.stderr + result.stdout);
 			assert.match(result.stdout, /"status": "failed"/);
 			assert.match(result.stdout, /Cannot load rust grammar:/);
