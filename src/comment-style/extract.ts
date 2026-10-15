@@ -18,7 +18,7 @@ const grammars = new Map<string, Language | Error>();
 let initializationError: string | null = null;
 try { await Parser.init(); } catch (error) { initializationError = error instanceof Error ? error.message : String(error); }
 
-// Demand loading follows Neovim's language.add; failures also stay cached until process restart.
+// Demand loading follows Neovim's language.add. Failures also stay cached until process restart.
 // The public loadSync API keeps extraction synchronous after the shared runtime initializes.
 // https://github.com/neovim/neovim/blob/f505b0636e0e0010f0bc13de0cd6d0978033ccb3/runtime/lua/vim/treesitter/language.lua
 function grammarFor(name: string): Language {
