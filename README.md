@@ -248,6 +248,8 @@ Jev findings are advisory and never clear local findings. Authentication, quota 
 
 The parser supports Go, Rust, TypeScript, TSX, and JavaScript, including `.go`, `.rs`, `.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs`. Vendored WASM grammars require no native compiler. Strings and template literal text are excluded from comment extraction.
 
+Each grammar loads on first use and is shared for the rest of the process. A Rust-only run loads only the Rust grammar. Missing or invalid WASM fails coverage and returns exit 2 when that grammar is needed; unrelated grammar files are not opened. Restart the process after repairing a failed grammar. The library's extraction and request-preparation APIs remain synchronous.
+
 Every selected file receives one of these outcomes:
 
 | Outcome | Meaning |

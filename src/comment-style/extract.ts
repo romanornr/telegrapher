@@ -1,4 +1,5 @@
 import { extname } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Parser, Language, type Node } from 'web-tree-sitter';
 import { codeKey, safetyLabel, type CommentBlock } from './comments.ts';
@@ -13,17 +14,27 @@ const languages = [
 	{ name: 'javascript', extensions: ['.js', '.jsx', '.mjs', '.cjs'], nodes: ['comment'], directive: /^\/[/*]\s*(?:oxlint|eslint|@ts-|#region|#endregion)/ },
 	{ name: 'rust', extensions: ['.rs'], nodes: ['line_comment', 'block_comment'], directive: /^\/\/(?:@|~|ignore-tidy-)/ },
 ];
-const grammars = new Map<string, Language>();
-const loadErrors = new Map<string, string>();
+const grammars = new Map<string, Language | Error>();
 let initializationError: string | null = null;
 try { await Parser.init(); } catch (error) { initializationError = error instanceof Error ? error.message : String(error); }
-for (const language of languages) {
-	try {
-		if (initializationError !== null) throw new Error(initializationError);
-		grammars.set(language.name, await Language.load(fileURLToPath(new URL(`../../vendor/grammars/tree-sitter-${language.name}.wasm`, import.meta.url))));
-	} catch (error) {
-		loadErrors.set(language.name, error instanceof Error ? error.message : String(error));
+
+// Demand loading follows Neovim's language.add; failures also stay cached until process restart.
+// The public loadSync API keeps extraction synchronous after the shared runtime initializes.
+// https://github.com/neovim/neovim/blob/f505b0636e0e0010f0bc13de0cd6d0978033ccb3/runtime/lua/vim/treesitter/language.lua
+function grammarFor(name: string): Language {
+	let grammar = grammars.get(name);
+	if (grammar === undefined) {
+		try {
+			if (initializationError !== null) throw new Error(initializationError);
+			const path = fileURLToPath(new URL(`../../vendor/grammars/tree-sitter-${name}.wasm`, import.meta.url));
+			grammar = Language.loadSync(new WebAssembly.Module(readFileSync(path)));
+		} catch (error) {
+			grammar = new Error(`Cannot load ${name} grammar: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		grammars.set(name, grammar);
 	}
+	if (grammar instanceof Error) throw grammar;
+	return grammar;
 }
 
 export function supported(path: string): boolean {
@@ -73,8 +84,7 @@ function clean(raw: string, start: number, docOffset?: number): { text: string[]
 export function extractComments(path: string, content: string): Extraction {
 	const language = languages.find(language => language.extensions.includes(extname(path)));
 	if (!language) throw new Error(`Unsupported language: ${path}`);
-	const grammar = grammars.get(language.name);
-	if (!grammar) throw new Error(`Cannot load ${language.name} grammar: ${loadErrors.get(language.name)}`);
+	const grammar = grammarFor(language.name);
 	const parser = new Parser();
 	try {
 		parser.setLanguage(grammar);

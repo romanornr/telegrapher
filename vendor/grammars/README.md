@@ -16,4 +16,6 @@ The shipped set is Rust 0.24.0, Go 0.25.0, TypeScript and TSX 0.23.2, and JavaSc
 
 The current release tarballs and copied WASM digests were verified during the Rust support build. The Node 24 smoke tests cover compatibility with `web-tree-sitter` 0.27.1, including the older TypeScript grammar ABI. No persistent parser cache is used.
 
+The shared runtime initializes asynchronously when the extraction module is imported. Each grammar is then read, compiled and linked synchronously on its first extraction through the public `Language.loadSync` API. Successful grammars and loading errors are cached by language until process exit. Missing or invalid required WASM produces failed coverage and exit 2; unused grammar assets are never opened. Parsers and syntax trees are created and deleted per extraction.
+
 SHA-256 checks run in the repository tests rather than at runtime. npm package integrity protects a distributed archive; in a source checkout, the reviewed files and checksum tests provide the integrity check. Runtime loading detects missing or invalid WASM but does not verify valid substituted bytes against the manifest.
